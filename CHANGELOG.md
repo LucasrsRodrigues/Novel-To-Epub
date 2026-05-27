@@ -7,11 +7,13 @@ o versionamento segue [SemVer](https://semver.org/lang/pt-BR/).
 
 ## [Unreleased]
 
+## [1.0.11] — 2026-05-27
+
 ### Added
 
 - **Tela inicial (About)** acessível pelo clique no logo da sidebar — mostra
   features, links GitHub, créditos, disclaimer legal e versão.
-- **Versão do app** no footer da sidebar (`v1.0.10`), com tooltip indicando
+- **Versão do app** no footer da sidebar (`v1.0.11`), com tooltip indicando
   status do backend.
 - **Botão "Cancelar"** no card de Downloads (queued + running). Endpoint
   `POST /api/downloads/{id}/cancel` cancela a `asyncio.Task` em curso sem
