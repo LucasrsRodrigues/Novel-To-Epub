@@ -1,0 +1,28 @@
+# Cada subprojeto tem seu próprio .gitignore com regras específicas
+# (backend/.gitignore, electron/.gitignore). Este aqui cobre só o que
+# vive na raiz ou em qualquer subpasta independentemente do stack.
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Claude Code (config/sessões locais)
+.claude/
+
+# Logs
+*.log
+
+# Env files (em qualquer lugar do repo)
+.env
+.env.*
+!.env.example
+
+# Outputs do CLI/menu
+out/

@@ -1,0 +1,45 @@
+appId: com.lucasrs.novel-to-epub
+productName: Novel to EPUB
+directories:
+  buildResources: build
+files:
+  - '!**/.vscode/*'
+  - '!src/*'
+  - '!electron.vite.config.{js,ts,mjs,cjs}'
+  - '!vite.config.{js,ts,mjs,cjs}'
+  - '!{.eslintcache,eslint.config.mjs,.prettierignore,.prettierrc.yaml,dev-app-update.yml,CHANGELOG.md,README.md}'
+  - '!{.env,.env.*,.npmrc,pnpm-lock.yaml}'
+  - '!{tsconfig.json,tsconfig.node.json,tsconfig.web.json}'
+asarUnpack:
+  - resources/**
+# Backend Python (PyInstaller) embarcado como recurso do app.
+# Em runtime fica em <App>/Contents/Resources/backend/ (process.resourcesPath/backend).
+extraResources:
+  - from: ../backend/dist/novel-backend
+    to: backend
+    filter: ['**/*']
+win:
+  executableName: novel-to-epub
+nsis:
+  artifactName: ${name}-${version}-setup.${ext}
+  shortcutName: ${productName}
+  uninstallDisplayName: ${productName}
+  createDesktopShortcut: always
+mac:
+  category: public.app-category.utilities
+  target:
+    - target: dmg
+      arch: [arm64]
+  # Build local sem assinatura (Gatekeeper avisa, mas roda)
+  identity: null
+  notarize: false
+dmg:
+  artifactName: ${name}-${version}.${ext}
+linux:
+  target:
+    - AppImage
+  maintainer: lucasrs
+  category: Utility
+appImage:
+  artifactName: ${name}-${version}.${ext}
+npmRebuild: false

@@ -1,0 +1,277 @@
+@import 'tailwindcss';
+@import 'tw-animate-css';
+
+@custom-variant dark (&:is(.dark *));
+
+/* =========================================================================
+   THEME — "Modern Paperback Library"
+   Cream/paper background, warm shadows, stamp-ink accents, library colors
+   ========================================================================= */
+
+:root {
+  /* Paper / surface scale (warm beige) */
+  --paper-50: #faf6ee;
+  --paper-100: #fdf9f1;
+  --paper-200: #f5ecd9;
+  --paper-300: #ebe0c6;
+  --paper-400: #d9ca9f;
+
+  /* Ink / text scale (warm brown-black) */
+  --ink-900: #1f1a14;
+  --ink-700: #3d3527;
+  --ink-500: #6d6049;
+  --ink-400: #8c7e68;
+  --ink-300: #b3a68a;
+
+  --border-soft: #e5dcc9;
+  --border-medium: #d4c6a9;
+
+  /* Accents */
+  --stamp-red: #c24033;
+  --stamp-red-dark: #a4342b;
+  --library-teal: #2d5c5e;
+  --bookmark-gold: #d4972b;
+  --bookmark-ribbon: #e5a93d;
+  --ink-stamp: #95281f;
+
+  /* Categorical book colors (sidebar nav + library) */
+  --book-1: #b85b3f; /* terracotta */
+  --book-2: #b58932; /* mustard */
+  --book-3: #5b8068; /* sage */
+  --book-4: #5a7a95; /* dusty blue */
+  --book-5: #715079; /* plum */
+  --book-6: #9a4c39; /* rust (extra) */
+  --book-7: #c4a877; /* cream-tan (extra) */
+
+  /* shadcn tokens — remapped to our palette */
+  --radius: 0.9rem;
+  --background: var(--paper-50);
+  --foreground: var(--ink-900);
+  --card: var(--paper-100);
+  --card-foreground: var(--ink-900);
+  --popover: var(--paper-100);
+  --popover-foreground: var(--ink-900);
+  --primary: var(--stamp-red);
+  --primary-foreground: #fdf9f1;
+  --secondary: var(--paper-200);
+  --secondary-foreground: var(--ink-900);
+  --muted: var(--paper-200);
+  --muted-foreground: var(--ink-500);
+  --accent: var(--paper-300);
+  --accent-foreground: var(--ink-900);
+  --destructive: var(--ink-stamp);
+  --border: var(--border-soft);
+  --input: var(--border-medium);
+  --ring: var(--stamp-red);
+
+  /* Type */
+  --font-display: 'Fraunces Variable', 'Fraunces', Georgia, ui-serif, serif;
+  --font-sans: 'Geist Variable', 'Geist', system-ui, -apple-system, sans-serif;
+}
+
+@theme inline {
+  --radius-sm: calc(var(--radius) - 8px);
+  --radius-md: calc(var(--radius) - 4px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 6px);
+  --radius-2xl: calc(var(--radius) + 12px);
+
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+
+  --color-paper-50: var(--paper-50);
+  --color-paper-100: var(--paper-100);
+  --color-paper-200: var(--paper-200);
+  --color-paper-300: var(--paper-300);
+  --color-paper-400: var(--paper-400);
+  --color-ink: var(--ink-900);
+  --color-ink-soft: var(--ink-500);
+  --color-stamp: var(--stamp-red);
+  --color-stamp-dark: var(--stamp-red-dark);
+  --color-teal: var(--library-teal);
+  --color-bookmark: var(--bookmark-ribbon);
+  --color-book-1: var(--book-1);
+  --color-book-2: var(--book-2);
+  --color-book-3: var(--book-3);
+  --color-book-4: var(--book-4);
+  --color-book-5: var(--book-5);
+  --color-book-6: var(--book-6);
+  --color-book-7: var(--book-7);
+
+  --font-display: var(--font-display);
+  --font-sans: var(--font-sans);
+
+  /* Shadows tuned warm (não pretas — pretas em cream parecem sujas) */
+  --shadow-paper:
+    0 1px 0 rgba(255, 250, 235, 0.7) inset,
+    0 1px 2px rgba(80, 50, 20, 0.06),
+    0 8px 20px -10px rgba(80, 50, 20, 0.18);
+  --shadow-paper-lg:
+    0 1px 0 rgba(255, 250, 235, 0.8) inset,
+    0 2px 6px rgba(80, 50, 20, 0.08),
+    0 24px 48px -18px rgba(80, 50, 20, 0.28);
+  --shadow-paper-inset: inset 0 1px 2px rgba(80, 50, 20, 0.06);
+}
+
+/* =========================================================================
+   BASE
+   ========================================================================= */
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  html {
+    font-family: var(--font-sans);
+    font-feature-settings: 'ss01', 'cv01', 'cv11'; /* Geist stylistic sets */
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+
+  body {
+    background-color: var(--paper-50);
+    color: var(--ink-900);
+    background-image:
+      radial-gradient(at 12% 18%, rgba(196, 150, 90, 0.10) 0px, transparent 45%),
+      radial-gradient(at 88% 75%, rgba(180, 120, 60, 0.07) 0px, transparent 50%),
+      radial-gradient(at 60% 6%, rgba(212, 167, 100, 0.06) 0px, transparent 35%);
+    background-attachment: fixed;
+  }
+
+  /* Paper grain overlay — film noise via SVG turbulence */
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    z-index: 0;
+    opacity: 0.55;
+    mix-blend-mode: multiply;
+    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='240' height='240' viewBox='0 0 240 240'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' seed='4' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 0.18  0 0 0 0 0.13  0 0 0 0 0.09  0 0 0 0.32 0'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>");
+  }
+
+  /* Ensure content sits above the noise overlay */
+  #root {
+    position: relative;
+    z-index: 1;
+  }
+
+  h1, h2, h3, h4 {
+    font-family: var(--font-display);
+    font-feature-settings: 'ss01', 'salt', 'liga';
+    letter-spacing: -0.012em;
+  }
+}
+
+/* =========================================================================
+   UTILITIES — components that need custom recipes
+   ========================================================================= */
+
+@layer utilities {
+  /* Card surface: paper-like with warm top highlight */
+  .surface-paper {
+    background-color: var(--paper-100);
+    box-shadow: var(--shadow-paper);
+    border: 1px solid var(--border-soft);
+  }
+
+  .surface-paper-lg {
+    background-color: var(--paper-100);
+    box-shadow: var(--shadow-paper-lg);
+    border: 1px solid var(--border-soft);
+  }
+
+  /* Primary CTA — sunset rainbow with pen-shadow */
+  .bg-rainbow {
+    background-image: linear-gradient(
+      96deg,
+      #fcc97b 0%,
+      #f3936f 22%,
+      #e7587d 48%,
+      #9e6dcc 74%,
+      #65bcd0 100%
+    );
+  }
+  .bg-rainbow-hover:hover {
+    background-image: linear-gradient(
+      96deg,
+      #fcd093 0%,
+      #f7a17e 22%,
+      #ed6c8d 48%,
+      #ad81d6 74%,
+      #79c8da 100%
+    );
+  }
+
+  /* Subtle "torn-paper" / wavy bottom edge on hero cards */
+  .edge-wave-bottom {
+    -webkit-mask-image: radial-gradient(circle at 8px 100%, transparent 4px, black 5px),
+      linear-gradient(black, black);
+    mask-image: radial-gradient(circle at 8px 100%, transparent 4px, black 5px),
+      linear-gradient(black, black);
+  }
+
+  /* Decorative dotted leader (folio style) */
+  .leader-dots {
+    background-image: radial-gradient(circle, var(--ink-300) 1px, transparent 1px);
+    background-size: 6px 6px;
+    background-repeat: repeat-x;
+    background-position: 0 50%;
+  }
+
+  /* Folio italic numbering */
+  .folio {
+    font-family: var(--font-display);
+    font-style: italic;
+    font-weight: 400;
+    letter-spacing: 0.04em;
+  }
+}
+
+/* Drag regions p/ Electron (titleBarStyle: hiddenInset) */
+.drag-region {
+  -webkit-app-region: drag;
+}
+.no-drag-region {
+  -webkit-app-region: no-drag;
+}
+
+/* Selection color matches stamp red on cream */
+::selection {
+  background: rgba(194, 64, 51, 0.22);
+  color: var(--ink-900);
+}
+
+/* Scrollbar (paper-themed) */
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+*::-webkit-scrollbar-track {
+  background: var(--paper-100);
+}
+*::-webkit-scrollbar-thumb {
+  background: var(--border-medium);
+  border-radius: 8px;
+  border: 2px solid var(--paper-100);
+}
+*::-webkit-scrollbar-thumb:hover {
+  background: var(--ink-300);
+}

@@ -1,0 +1,31 @@
+# --- HTTP & scraping ---
+httpx>=0.27           # cliente async
+beautifulsoup4>=4.12  # parsing HTML
+lxml>=5.3             # parser rapido p/ o bs4
+tenacity>=9.0         # retry/backoff em requests instaveis
+
+# --- EPUB ---
+EbookLib>=0.18        # geracao de .epub (TOC, capa, metadados)
+
+# --- Persistencia ---
+SQLAlchemy>=2.0.30    # ORM sobre SQLite (sqlite3 e stdlib)
+
+# --- Config & logging ---
+pydantic>=2.9
+pydantic-settings>=2.5  # settings tipadas (delay, UA, paths)
+structlog>=24.4         # logs estruturados
+
+# --- CLI ---
+typer>=0.12           # CLI declarativa
+rich>=13.9            # progress bar / output
+
+# --- Utils ---
+python-slugify>=8.0   # nomes de arquivo seguros
+
+# --- API (Etapa 2) ---
+fastapi>=0.115
+uvicorn[standard]>=0.30  # inclui websockets, uvloop, httptools
+aiosmtplib>=3.0          # envio SMTP async (Kindle)
+
+# --- Traducao (Etapa 5) ---
+google-genai>=1.0        # SDK unificado do Gemini (substitui google-generativeai)
