@@ -3,6 +3,8 @@
 > Scraper de web novels que monta `.epub` completos — com tradução por IA,
 > geração de capa, envio pro Kindle e UI desktop.
 
+🇧🇷 Português (BR) · [🇬🇧 English](README.en.md)
+
 Você cola a URL de uma novel, escolhe o intervalo de capítulos e o app baixa,
 traduz (opcionalmente), gera capa (opcionalmente), monta o EPUB e — se quiser —
 envia direto pro seu Kindle por email. Tudo roda local. Cache no SQLite garante
@@ -15,13 +17,41 @@ que nada é re-baixado.
 ![Node](https://img.shields.io/badge/node-18%2B-green)
 ![Status](https://img.shields.io/badge/status-em%20desenvolvimento-orange)
 
+![Biblioteca](docs/screenshots/tela-biblioteca.png)
+
+<details>
+<summary><strong>Mais telas</strong> (clique pra expandir)</summary>
+
+| Sobre | Nova captura | Downloads |
+|---|---|---|
+| ![Home](docs/screenshots/tela-home.png) | ![Nova captura](docs/screenshots/tela-download.png) | ![Downloads](docs/screenshots/tela-downloading.png) |
+
+| Glossário | Custos |
+|---|---|
+| ![Glossário](docs/screenshots/tela-glossario.png) | ![Custos](docs/screenshots/tela-custos.png) |
+
+</details>
+
+---
+
+> ⚠️ **Aviso legal — uso pessoal.**
+> Este projeto é uma ferramenta de **leitura offline**. Web novels são tipicamente
+> protegidas por copyright e os sites de origem podem proibir scraping nos seus
+> Termos de Uso. **Você é responsável** por: (a) respeitar o ToS de cada site,
+> (b) não redistribuir os EPUBs gerados, (c) apoiar o autor original quando
+> possível (Patreon, livro oficial etc). O projeto **não hospeda conteúdo** —
+> só automatiza um leitor humano fazendo o que faria manualmente.
+
 ---
 
 ## Sumário
 
+- [Aviso legal](#aviso-legal--uso-pessoal)
 - [Features](#features)
 - [Sites suportados](#sites-suportados)
+- [Download (binários macOS)](#download-binários-macos)
 - [Demo rápido](#demo-rápido)
+- [Quickstart sem tradução (30s)](#quickstart-sem-tradução-30s)
 - [Pré-requisitos](#pré-requisitos)
 - [Instalação](#instalação)
 - [Uso](#uso)
@@ -37,6 +67,8 @@ que nada é re-baixado.
 - [Comandos Make](#comandos-make)
 - [Limitações conhecidas](#limitações-conhecidas)
 - [Contribuindo](#contribuindo)
+- [Segurança](SECURITY.md)
+- [Changelog](CHANGELOG.md)
 - [Licença](#licença)
 
 ---
@@ -70,9 +102,36 @@ que nada é re-baixado.
 |--------------|----------------------------------------------------------------|--------------|
 | NovelBin     | `novelbin.com`, `novelbin.me`, `novelbin.net`, `.org`, `.io`   | ✅ Pronto    |
 | NovelMania   | `novelmania.com.br` (já em PT-BR, dispensa tradução)           | ✅ Pronto    |
-| NovelFull    | `novelfull.net`                                                | 🚧 Em construção |
+| NovelFull    | `novelfull.net`                                                | ✅ Pronto (paginação concorrente) |
 
-Não vê o seu site? Veja [Como adicionar um novo site](#como-adicionar-um-novo-site-adapter).
+Não vê o seu site? Veja [Como adicionar um novo site](#como-adicionar-um-novo-site-adapter)
+ou abra um [adapter request](.github/ISSUE_TEMPLATE/adapter_request.md).
+
+---
+
+## Download (binários macOS)
+
+Quem não quer compilar pode baixar o `.dmg` direto da
+[página de Releases](https://github.com/LucasrsRodrigues/Novel-To-Epub/releases).
+
+> ⚠️ **Gatekeeper:** o build **não é assinado nem notarizado** (custa $99/ano da Apple).
+> Na primeira execução o macOS vai dizer **"Apple não pôde verificar"**. Solução:
+>
+> 1. Clique com o botão direito (ou `Control` + clique) no `.app` → **Abrir**
+> 2. Confirme **Abrir** no popup
+> 3. A partir daí abre normal
+>
+> Alternativa via terminal: `xattr -dr com.apple.quarantine "/Applications/Novel to EPUB.app"`
+
+Confira o SHA256 antes pra garantir que o `.dmg` não foi modificado em trânsito:
+
+```bash
+shasum -a 256 ~/Downloads/Novel-to-EPUB-*.dmg
+# compara com o hash publicado na release
+```
+
+Linux e Windows: ainda sem binário pré-buildado, mas o app builda (veja
+[Instalação](#instalação) → manual).
 
 ---
 
@@ -88,6 +147,24 @@ make                 # abre o menu interativo
 Sem chave de API, o app baixa e monta EPUB normalmente — a tradução é
 opcional. Se quiser traduzir, configure pelo menos uma das chaves
 ([Variáveis de ambiente](#variáveis-de-ambiente)).
+
+---
+
+## Quickstart sem tradução (30s)
+
+EPUB saindo em 3 comandos, sem nenhuma API key:
+
+```bash
+git clone https://github.com/LucasrsRodrigues/Novel-To-Epub.git
+cd Novel-To-Epub
+make install                              # só o backend (mais rápido que install-all)
+make download URL=https://novelbin.com/b/lord-of-mysteries START=1 END=10
+```
+
+O EPUB sai em `backend/data/epubs/`. Já tem capa (raspada do site), TOC navegável,
+e abre direto no Calibre / Kindle Previewer / Apple Books.
+
+Pra interface gráfica + tradução IA + envio Kindle, veja [Instalação](#instalação) completa.
 
 ---
 
@@ -525,10 +602,9 @@ Todos os alvos aceitam variáveis pela linha:
 
 ## Limitações conhecidas
 
-- **NovelFull (`novelfull.net`) ainda não está pronto** — `backend/app/scraper/adapters/novellfull.py` é um stub. PRs bem-vindos.
 - **Capas IA usam fonts do sistema macOS** (Georgia). Em outros SOs vai cair em fallback. TODO: embarcar TTF.
 - **Sem testes automatizados ainda.** Validação é manual via `make detect` /
-  `make download LOG=DEBUG`.
+  `make download LOG=DEBUG`. CI checa lint + smoke imports.
 - **Build do Electron pra macOS roda sem assinatura** (Gatekeeper avisa, mas
   permite). Notarização desabilitada no `electron-builder.yml`.
 - **Rate-limit dos sites:** delay default `1–3s`. Se levar block, aumentar
@@ -540,35 +616,22 @@ Todos os alvos aceitam variáveis pela linha:
 
 ## Contribuindo
 
-PRs e issues bem-vindos. Sugestões boas pra começar:
+PRs e issues bem-vindos! Sugestões boas pra começar:
 
-- **Novo adapter de site** — siga o
-  [tutorial](#como-adicionar-um-novo-site-adapter). É a contribuição mais
-  valiosa.
-- **Completar NovelFull** ([`adapters/novellfull.py`](backend/app/scraper/adapters/novellfull.py)).
-- **Embarcar TTFs** na geração de capa pra cross-platform real.
-- **Adicionar testes** pros adapters (suite de fixtures HTML).
-- **Traduções da UI** pra inglês/espanhol.
+- **Novo adapter de site** — a contribuição mais valiosa
+  ([tutorial](#como-adicionar-um-novo-site-adapter) ·
+  [adapter request](.github/ISSUE_TEMPLATE/adapter_request.md))
+- **Embarcar TTFs** na geração de capa pra cross-platform real
+- **Adicionar testes** pros adapters (suite de fixtures HTML)
+- **Traduções da UI** pra inglês/espanhol
+- **README.en.md** — qualquer melhoria é bem-vinda
 
-### Setup de dev
+📋 **Detalhes**: [CONTRIBUTING.md](CONTRIBUTING.md) — setup, critérios de aceite,
+release process pra mantenedores.
 
-```bash
-make install-all
-make dev      # Electron em hot-reload (sobe backend junto)
-```
+🔒 **Segurança**: encontrou vulnerabilidade? Veja [SECURITY.md](SECURITY.md).
 
-Em outro terminal:
-
-```bash
-make download URL=... START=1 END=1 LOG=DEBUG    # debug isolado do adapter
-```
-
-Antes de PR:
-
-```bash
-make typecheck
-make lint
-```
+📝 **Mudanças**: [CHANGELOG.md](CHANGELOG.md).
 
 ---
 

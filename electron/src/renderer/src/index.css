@@ -35,13 +35,20 @@
   --ink-stamp: #95281f;
 
   /* Categorical book colors (sidebar nav + library) */
-  --book-1: #b85b3f; /* terracotta */
-  --book-2: #b58932; /* mustard */
-  --book-3: #5b8068; /* sage */
-  --book-4: #5a7a95; /* dusty blue */
-  --book-5: #715079; /* plum */
-  --book-6: #9a4c39; /* rust (extra) */
-  --book-7: #c4a877; /* cream-tan (extra) */
+  --book-1: #b85b3f;
+  /* terracotta */
+  --book-2: #b58932;
+  /* mustard */
+  --book-3: #5b8068;
+  /* sage */
+  --book-4: #5a7a95;
+  /* dusty blue */
+  --book-5: #715079;
+  /* plum */
+  --book-6: #9a4c39;
+  /* rust (extra) */
+  --book-7: #c4a877;
+  /* cream-tan (extra) */
 
   /* shadcn tokens — remapped to our palette */
   --radius: 0.9rem;
@@ -136,11 +143,18 @@
 @layer base {
   * {
     @apply border-border;
+
+
+  }
+
+  a {
+    @apply cursor-pointer!;
   }
 
   html {
     font-family: var(--font-sans);
-    font-feature-settings: 'ss01', 'cv01', 'cv11'; /* Geist stylistic sets */
+    font-feature-settings: 'ss01', 'cv01', 'cv11';
+    /* Geist stylistic sets */
     -webkit-font-smoothing: antialiased;
     text-rendering: optimizeLegibility;
   }
@@ -153,6 +167,7 @@
       radial-gradient(at 88% 75%, rgba(180, 120, 60, 0.07) 0px, transparent 50%),
       radial-gradient(at 60% 6%, rgba(212, 167, 100, 0.06) 0px, transparent 35%);
     background-attachment: fixed;
+    scroll-behavior: smooth;
   }
 
   /* Paper grain overlay — film noise via SVG turbulence */
@@ -173,7 +188,10 @@
     z-index: 1;
   }
 
-  h1, h2, h3, h4 {
+  h1,
+  h2,
+  h3,
+  h4 {
     font-family: var(--font-display);
     font-feature-settings: 'ss01', 'salt', 'liga';
     letter-spacing: -0.012em;
@@ -185,6 +203,7 @@
    ========================================================================= */
 
 @layer utilities {
+
   /* Card surface: paper-like with warm top highlight */
   .surface-paper {
     background-color: var(--paper-100);
@@ -200,24 +219,21 @@
 
   /* Primary CTA — sunset rainbow with pen-shadow */
   .bg-rainbow {
-    background-image: linear-gradient(
-      96deg,
-      #fcc97b 0%,
-      #f3936f 22%,
-      #e7587d 48%,
-      #9e6dcc 74%,
-      #65bcd0 100%
-    );
+    background-image: linear-gradient(96deg,
+        #fcc97b 0%,
+        #f3936f 22%,
+        #e7587d 48%,
+        #9e6dcc 74%,
+        #65bcd0 100%);
   }
+
   .bg-rainbow-hover:hover {
-    background-image: linear-gradient(
-      96deg,
-      #fcd093 0%,
-      #f7a17e 22%,
-      #ed6c8d 48%,
-      #ad81d6 74%,
-      #79c8da 100%
-    );
+    background-image: linear-gradient(96deg,
+        #fcd093 0%,
+        #f7a17e 22%,
+        #ed6c8d 48%,
+        #ad81d6 74%,
+        #79c8da 100%);
   }
 
   /* Subtle "torn-paper" / wavy bottom edge on hero cards */
@@ -249,6 +265,7 @@
 .drag-region {
   -webkit-app-region: drag;
 }
+
 .no-drag-region {
   -webkit-app-region: no-drag;
 }
@@ -264,14 +281,17 @@
   width: 10px;
   height: 10px;
 }
+
 *::-webkit-scrollbar-track {
   background: var(--paper-100);
 }
+
 *::-webkit-scrollbar-thumb {
   background: var(--border-medium);
   border-radius: 8px;
   border: 2px solid var(--paper-100);
 }
+
 *::-webkit-scrollbar-thumb:hover {
   background: var(--ink-300);
 }

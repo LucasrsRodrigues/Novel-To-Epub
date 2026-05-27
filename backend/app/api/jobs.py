@@ -35,8 +35,8 @@ class Job:
     translate_to: str | None = None
     volume_title: str | None = None
     ai_cover: bool = False
-    status: str = "queued"  # queued | running | done | error
-    stage: str = "idle"      # idle | download | translate | cover
+    status: str = "queued"  # queued | running | done | error | cancelled
+    stage: str = "idle"      # idle | meta | download | translate | cover
     translation_failed: int = 0  # caps que ficaram em EN por falha
     # Detalhe por cap que falhou: TranslationFailure(chapter, title, reason).
     # Preenchido por on_complete; vazio enquanto o job nao terminou.
@@ -85,6 +85,9 @@ class JobManager:
         self._jobs: dict[str, Job] = {}
         self._queue: asyncio.Queue[str] = asyncio.Queue()
         self._workers: list[asyncio.Task] = []
+        # Task asyncio do _run em andamento por job_id. Permite cancel granular
+        # sem derrubar o worker inteiro. Limpa em _worker quando _run termina.
+        self._running: dict[str, asyncio.Task] = {}
         self._n_workers = workers
         self.hub = ConnectionHub()
 
@@ -138,6 +141,31 @@ class JobManager:
     def list(self) -> list[Job]:
         return sorted(self._jobs.values(), key=lambda j: j.created_at, reverse=True)
 
+    def cancel(self, job_id: str) -> Job | None:
+        """Cancela um job 'queued' (sem efeito) ou 'running' (cancela a task).
+
+        Idempotente: cancelar um job ja terminado/cancelado retorna o job sem
+        mexer no estado. Pra running, o asyncio.Task.cancel() levanta
+        CancelledError dentro do _run; o except la cuida de marcar status.
+        """
+        job = self._jobs.get(job_id)
+        if job is None:
+            return None
+        if job.status in ("done", "error", "cancelled"):
+            return job
+        if job.status == "queued":
+            # _worker filtra no consume — basta marcar.
+            job.status = "cancelled"
+            self._touch(job)
+            self._publish("cancelled", job)
+            log.info("job_cancelled_queued", id=job.id)
+            return job
+        # running
+        task = self._running.get(job_id)
+        if task is not None and not task.done():
+            task.cancel()
+        return job
+
     # ---------------------------------------------------------------- internals
     def _touch(self, job: Job) -> None:
         job.updated_at = _now()
@@ -151,11 +179,23 @@ class JobManager:
         while True:
             job_id = await self._queue.get()
             job = self._jobs.get(job_id)
-            if job is None:
+            # Job pode ter sido cancelado enquanto estava na fila — pula sem rodar.
+            if job is None or job.status == "cancelled":
                 self._queue.task_done()
                 continue
+            # Encapsula _run numa task pra permitir cancel granular via cancel().
+            task = asyncio.create_task(self._run(job))
+            self._running[job_id] = task
             try:
-                await self._run(job)
+                await task
+            except asyncio.CancelledError:
+                # Cancelamento veio do cancel() — _run propagou. Marca status
+                # apenas se o job ja nao esta em estado terminal.
+                if job.status not in ("done", "error", "cancelled"):
+                    job.status = "cancelled"
+                    self._touch(job)
+                    self._publish("cancelled", job)
+                log.info("job_cancelled_running", id=job.id)
             except Exception as exc:  # rede de seguranca
                 job.status = "error"
                 job.error = str(exc)
@@ -163,6 +203,7 @@ class JobManager:
                 self._publish("error", job)
                 log.warning("job_failed", id=job.id, error=str(exc))
             finally:
+                self._running.pop(job_id, None)
                 self._queue.task_done()
 
     async def _run(self, job: Job) -> None:

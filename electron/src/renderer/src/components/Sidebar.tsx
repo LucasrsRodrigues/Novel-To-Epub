@@ -3,10 +3,18 @@ import { useJobs } from '@renderer/context/JobsContext'
 import { Book } from '@renderer/components/decorative/Book'
 import { Logo } from '@renderer/components/decorative/Logo'
 
-export type View = 'new' | 'downloads' | 'library' | 'glossary' | 'usage' | 'settings'
+// 'about' não aparece na lista da sidebar — abre clicando no logo (landing/sobre).
+export type View =
+  | 'about'
+  | 'new'
+  | 'downloads'
+  | 'library'
+  | 'glossary'
+  | 'usage'
+  | 'settings'
 
 interface NavItem {
-  id: View
+  id: Exclude<View, 'about'>
   label: string
   description: string
   color: string
@@ -15,11 +23,41 @@ interface NavItem {
 
 const ITEMS: NavItem[] = [
   { id: 'new', label: 'Nova captura', description: 'criar', color: 'var(--book-1)', letter: 'N' },
-  { id: 'downloads', label: 'Downloads', description: 'fila ao vivo', color: 'var(--book-2)', letter: 'D' },
-  { id: 'library', label: 'Biblioteca', description: 'em cache', color: 'var(--book-3)', letter: 'B' },
-  { id: 'glossary', label: 'Glossário', description: 'termos', color: 'var(--book-4)', letter: 'G' },
-  { id: 'usage', label: 'Custos', description: 'gastos Gemini', color: 'var(--book-6)', letter: '$' },
-  { id: 'settings', label: 'Configurações', description: 'preferências', color: 'var(--book-5)', letter: 'C' }
+  {
+    id: 'downloads',
+    label: 'Downloads',
+    description: 'fila ao vivo',
+    color: 'var(--book-2)',
+    letter: 'D'
+  },
+  {
+    id: 'library',
+    label: 'Biblioteca',
+    description: 'em cache',
+    color: 'var(--book-3)',
+    letter: 'B'
+  },
+  {
+    id: 'glossary',
+    label: 'Glossário',
+    description: 'termos',
+    color: 'var(--book-4)',
+    letter: 'G'
+  },
+  {
+    id: 'usage',
+    label: 'Custos',
+    description: 'gastos com IA',
+    color: 'var(--book-6)',
+    letter: '$'
+  },
+  {
+    id: 'settings',
+    label: 'Configurações',
+    description: 'preferências',
+    color: 'var(--book-5)',
+    letter: 'C'
+  }
 ]
 
 export function Sidebar({
@@ -36,12 +74,24 @@ export function Sidebar({
 
   return (
     <aside className="surface-paper relative flex w-72 shrink-0 flex-col rounded-none border-y-0 border-l-0 px-4 pt-12 pb-7">
-      {/* drag-region: usuario arrasta a janela a partir do header (titlebar oculta) */}
+      {/* drag-region: usuario arrasta a janela a partir do header (titlebar oculta).
+          O Logo dentro continua clicavel — o no-drag local quebra a heranca. */}
       <div className="drag-region px-3 pb-7">
-        <Logo size="md" />
-        <p className="folio mt-1.5 text-[0.7rem] text-[var(--ink-400)]">
-          Personal Library · Est. 2026
-        </p>
+        <button
+          type="button"
+          onClick={() => onNavigate('about')}
+          aria-label="Sobre o Novel → EPUB"
+          className={cn(
+            'no-drag-region group flex flex-col items-start rounded-md text-left',
+            'transition-opacity hover:opacity-85 focus:opacity-85 focus:outline-none',
+            'focus-visible:ring-2 focus-visible:ring-[var(--stamp-red)]/40'
+          )}
+        >
+          <Logo size="md" />
+          <p className="folio mt-1.5 text-[0.7rem] text-[var(--ink-400)]">
+            Personal Library · Est. 2026
+          </p>
+        </button>
       </div>
 
       <nav className="flex-1 space-y-1">
@@ -97,9 +147,7 @@ export function Sidebar({
                 </span>
               </span>
               {item.id === 'downloads' && active > 0 && (
-                <span
-                  className="font-sans flex h-5 min-w-[20px] items-center justify-center rounded-full bg-[var(--stamp-red)] px-1.5 text-[10px] font-bold text-[var(--paper-100)] shadow-[0_1px_2px_rgba(120,40,30,0.3)]"
-                >
+                <span className="font-sans flex h-5 min-w-[20px] items-center justify-center rounded-full bg-[var(--stamp-red)] px-1.5 text-[10px] font-bold text-[var(--paper-100)] shadow-[0_1px_2px_rgba(120,40,30,0.3)]">
                   {active}
                 </span>
               )}
@@ -108,17 +156,19 @@ export function Sidebar({
         })}
       </nav>
 
-      {/* connection footer */}
-      <div className="font-sans mt-4 flex items-center gap-2 rounded-xl border border-[var(--border-soft)] bg-[var(--paper-50)] px-3 py-2 text-[11px]">
+      {/* Footer: versao do app + indicador discreto de conexao.
+          Bolinha verde = backend conectado; cinza = desconectado. Tooltip esclarece. */}
+      <div
+        className="font-sans mt-4 flex items-center gap-2 rounded-xl border border-[var(--border-soft)] bg-[var(--paper-50)] px-3 py-2 text-[11px]"
+        title={connected ? 'backend conectado' : 'backend desconectado'}
+      >
         <span
           className={cn(
             'inline-block size-1.5 rounded-full',
             connected ? 'bg-[var(--book-3)]' : 'bg-[var(--ink-300)]'
           )}
         />
-        <span className="text-[var(--ink-500)]">
-          backend {connected ? 'conectado' : 'desconectado'}
-        </span>
+        <span className="folio text-[var(--ink-500)]">v{__APP_VERSION__}</span>
       </div>
     </aside>
   )

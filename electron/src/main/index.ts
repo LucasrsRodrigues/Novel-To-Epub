@@ -7,6 +7,15 @@ import { startBackend, stopBackend, type BackendConfig } from './backend'
 // Modo headless (sem janela) — usado para validar o spawn do backend nos testes.
 const HEADLESS = !!process.env.NOVEL_HEADLESS
 
+// Ancora userData num path estável baseado no productName, NÃO no package.json:name.
+// Sem isso, renomear `name` no package.json move o userData (Electron usa `name`
+// por default) e a Library/Glossário "somem" — os dados antigos ficam orfanados
+// na pasta com o nome antigo. Fixar aqui torna o caminho independente disso.
+// Deve rodar ANTES de qualquer `app.getPath('userData')` (incluindo o backendConfig).
+if (!is.dev) {
+  app.setPath('userData', join(app.getPath('appData'), 'Novel to EPUB'))
+}
+
 function backendConfig(): BackendConfig {
   const isWin = process.platform === 'win32'
   const port = process.env.NOVEL_BACKEND_PORT ? Number(process.env.NOVEL_BACKEND_PORT) : undefined

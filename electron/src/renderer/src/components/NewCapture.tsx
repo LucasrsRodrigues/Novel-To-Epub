@@ -1,5 +1,13 @@
-import { useEffect, useMemo, useState } from 'react'
-import { CircleAlert, CircleCheck, Download, Languages, Loader2, Sparkles } from 'lucide-react'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import {
+  CircleAlert,
+  CircleCheck,
+  Download,
+  Eye,
+  Languages,
+  Loader2,
+  Sparkles
+} from 'lucide-react'
 import { api, type JobStatus, type NovelPreview } from '@renderer/lib/api'
 import { useJobs } from '@renderer/context/JobsContext'
 import { Button } from '@renderer/components/ui/button'
@@ -15,11 +23,16 @@ function statusLabel(job: JobStatus): string {
     case 'queued':
       return 'Na fila...'
     case 'running':
-      return job.stage === 'translate' ? 'Traduzindo capítulos' : 'Baixando capítulos'
+      if (job.stage === 'meta') return 'Buscando lista de capítulos...'
+      if (job.stage === 'translate') return 'Traduzindo capítulos'
+      if (job.stage === 'cover') return 'Gerando capa com IA'
+      return 'Baixando capítulos'
     case 'done':
       return 'Concluído'
     case 'error':
       return `Erro: ${job.error ?? 'desconhecido'}`
+    case 'cancelled':
+      return 'Cancelado'
   }
 }
 
@@ -58,44 +71,75 @@ export function NewCapture({
   // Sites que JÁ entregam PT-BR — tradução é desnecessária (e custaria $$ à toa).
   // Hostname do user é normalizado pra match com .com.br / subdomínios.
   const PT_NATIVE_HOSTS = ['novelmania.com.br']
-  const sourceIsPtNative = useMemo(() => {
+  // Sites que estruturam volumes nativamente. Pro resto (NovelBin, NovelFull...)
+  // o preview é decorativo e custa rede — só dispara sob pedido (botão "Pré-visualizar").
+  const HOSTS_WITH_VOLUMES = ['novelmania.com.br']
+
+  function matchHost(rawUrl: string, hosts: string[]): boolean {
     try {
-      const host = new URL(url.trim()).hostname.replace(/^www\./, '')
-      return PT_NATIVE_HOSTS.some((d) => host === d || host.endsWith('.' + d))
+      const host = new URL(rawUrl.trim()).hostname.replace(/^www\./, '')
+      return hosts.some((d) => host === d || host.endsWith('.' + d))
     } catch {
       return false
     }
-  }, [url])
+  }
 
-  // Auto-desliga tradução quando fonte é PT-BR
-  useEffect(() => {
-    if (sourceIsPtNative && translate) setTranslate(false)
-  }, [sourceIsPtNative, translate])
+  const sourceIsPtNative = useMemo(() => matchHost(url, PT_NATIVE_HOSTS), [url])
+  const sourceHasVolumes = useMemo(() => matchHost(url, HOSTS_WITH_VOLUMES), [url])
 
-  // Preview da novel (debounced) — busca metadata + volumes ao colar URL
+  // Preview da novel — busca metadata + volumes.
+  // Auto-dispara (debounced) APENAS pra sites que entregam volumes (dropdown útil).
+  // Pra outros, mostra botão "Pré-visualizar" opcional — evita um request lento
+  // que só renderia título/capa decorativos.
   const [preview, setPreview] = useState<NovelPreview | null>(null)
   const [previewLoading, setPreviewLoading] = useState(false)
   const [previewErr, setPreviewErr] = useState<string | null>(null)
   const [selectedVolumeIdx, setSelectedVolumeIdx] = useState<number | -1>(-1)
+  // Token de cancelamento da request mais recente — evita race condition se o user
+  // edita a URL enquanto uma chamada (auto ou manual) ainda está no ar.
+  const previewReqRef = useRef(0)
 
-  useEffect(() => {
-    const trimmed = url.trim()
-    setPreview(null); setPreviewErr(null); setSelectedVolumeIdx(-1)
+  async function runPreview(rawUrl: string): Promise<void> {
+    const trimmed = rawUrl.trim()
     if (!trimmed || !trimmed.startsWith('http')) return
-    let cancelled = false
-    const t = setTimeout(async () => {
-      setPreviewLoading(true)
-      try {
-        const data = await api.previewNovel(trimmed)
-        if (!cancelled) setPreview(data)
-      } catch (err) {
-        if (!cancelled) setPreviewErr(err instanceof Error ? err.message : String(err))
-      } finally {
-        if (!cancelled) setPreviewLoading(false)
+    const token = ++previewReqRef.current
+    setPreviewLoading(true)
+    setPreviewErr(null)
+    try {
+      const data = await api.previewNovel(trimmed)
+      if (token === previewReqRef.current) setPreview(data)
+    } catch (err) {
+      if (token === previewReqRef.current) {
+        setPreviewErr(err instanceof Error ? err.message : String(err))
       }
+    } finally {
+      if (token === previewReqRef.current) setPreviewLoading(false)
+    }
+  }
+
+  // Reseta preview a cada mudança de URL e dispara auto-preview SÓ se o host
+  // suporta volumes. O ++previewReqRef invalida requests in-flight de URLs antigas.
+  useEffect(() => {
+    setPreview(null)
+    setPreviewErr(null)
+    setSelectedVolumeIdx(-1)
+    previewReqRef.current++
+    if (!sourceHasVolumes) return
+    const trimmed = url.trim()
+    if (!trimmed || !trimmed.startsWith('http')) return
+    const t = setTimeout(() => {
+      void runPreview(trimmed)
     }, 800)
-    return () => { cancelled = true; clearTimeout(t) }
-  }, [url])
+    return () => clearTimeout(t)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [url, sourceHasVolumes])
+
+  // Auto-desliga tradução quando fonte é PT-BR
+  useEffect(() => {
+    if (sourceIsPtNative && translate) {
+      setTranslate(false)
+    }
+  }, [sourceIsPtNative, translate])
 
   // Quando user seleciona um volume, auto-preenche start/end/volume_title
   function selectVolume(idx: number): void {
@@ -137,7 +181,8 @@ export function NewCapture({
           Nova captura
         </h2>
         <p className="font-sans max-w-md text-[15px] leading-relaxed text-[var(--ink-500)]">
-          Cole a URL de uma novel, escolha o intervalo de capítulos, e deixe a alquimia transformar em <em className="font-display italic text-[var(--ink-700)]">livro de verdade</em>.
+          Cole a URL de uma novel, escolha o intervalo de capítulos, e deixe a alquimia transformar
+          em <em className="font-display italic text-[var(--ink-700)]">livro de verdade</em>.
         </p>
       </header>
 
@@ -157,10 +202,20 @@ export function NewCapture({
                 <Loader2 className="size-3.5 animate-spin" /> Lendo página da novel…
               </div>
             )}
+            {/* Sites sem volumes nativos: nao disparamos preview automatico
+                (poupa um request lento que so renderiza titulo/capa decorativos).
+                Mostra um link opt-in pra quem quiser ver a previa. */}
+            {!sourceHasVolumes && !preview && !previewLoading && url.trim().startsWith('http') && (
+              <button
+                type="button"
+                onClick={() => void runPreview(url)}
+                className="font-sans inline-flex items-center gap-1.5 pt-1 text-[12px] text-[var(--ink-500)] underline decoration-[var(--ink-300)] underline-offset-4 transition-colors hover:text-[var(--stamp-red)] hover:decoration-[var(--stamp-red)]"
+              >
+                <Eye className="size-3.5" /> Pré-visualizar (opcional)
+              </button>
+            )}
             {previewErr && (
-              <div className="font-sans pt-1 text-[12px] text-[var(--ink-stamp)]">
-                {previewErr}
-              </div>
+              <div className="font-sans pt-1 text-[12px] text-[var(--ink-stamp)]">{previewErr}</div>
             )}
             {preview && (
               <div
@@ -186,7 +241,10 @@ export function NewCapture({
                     {preview.author ?? 'autor desconhecido'} ·{' '}
                     <strong>{preview.total_chapters}</strong> caps
                     {preview.volumes.length > 0 && (
-                      <> · <strong>{preview.volumes.length}</strong> volumes detectados</>
+                      <>
+                        {' '}
+                        · <strong>{preview.volumes.length}</strong> volumes detectados
+                      </>
                     )}
                   </div>
                   {preview.volumes.length > 0 && (
@@ -227,8 +285,8 @@ export function NewCapture({
               onChange={(e) => setVolumeTitle(e.target.value)}
             />
             <p className="font-sans text-[11px] leading-relaxed text-[var(--ink-400)]">
-              Se preenchido, vira o título do EPUB e o nome do arquivo. A novel
-              original fica como série (Kindle agrupa).
+              Se preenchido, vira o título do EPUB e o nome do arquivo. A novel original fica como
+              série (Kindle agrupa).
             </p>
           </div>
 
@@ -258,10 +316,7 @@ export function NewCapture({
 
           <div className="space-y-3 border-t border-[var(--border-soft)] pt-5">
             <label className="font-sans flex cursor-pointer items-center gap-3 text-[14px] text-[var(--ink-700)]">
-              <Checkbox
-                checked={withCover}
-                onCheckedChange={(v) => setWithCover(v === true)}
-              />
+              <Checkbox checked={withCover} onCheckedChange={(v) => setWithCover(v === true)} />
               Incluir capa
             </label>
             <label
@@ -302,7 +357,8 @@ export function NewCapture({
                   Gerar capa com IA <span className="text-[var(--ink-400)]">(Gemini Image)</span>
                 </span>
                 <span className="font-sans text-[11px] leading-relaxed text-[var(--ink-400)]">
-                  Lê o glossário + amostras dos capítulos pra criar uma capa que reflete o arco do volume.
+                  Lê o glossário + amostras dos capítulos pra criar uma capa que reflete o arco do
+                  volume.
                 </span>
               </div>
             </label>
@@ -342,9 +398,7 @@ export function NewCapture({
           <div className="flex items-start justify-between gap-4">
             <div className="space-y-1">
               <h3 className="font-display flex items-center gap-2 text-lg font-medium">
-                {job.status === 'done' && (
-                  <CircleCheck className="size-5 text-[var(--book-3)]" />
-                )}
+                {job.status === 'done' && <CircleCheck className="size-5 text-[var(--book-3)]" />}
                 {job.status === 'error' && (
                   <CircleAlert className="size-5 text-[var(--ink-stamp)]" />
                 )}
@@ -353,7 +407,8 @@ export function NewCapture({
               <p className="font-sans text-sm text-[var(--ink-500)]">{statusLabel(job)}</p>
             </div>
             <span className="font-display text-2xl italic text-[var(--ink-400)]">
-              {pct}<span className="text-base">%</span>
+              {pct}
+              <span className="text-base">%</span>
             </span>
           </div>
           <Progress value={pct} rainbow />
