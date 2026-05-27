@@ -80,15 +80,21 @@ class HttpClient:
             log.warning("fetch_failed", url=url, error=str(exc))
             raise FetchError(f"Falha ao baixar {url}: {exc}") from exc
 
-    async def get_text(self, url: str) -> str:
-        await self._throttle()
-        log.debug("GET", url=url)
+    async def get_text(self, url: str, *, throttle: bool = True) -> str:
+        # ``throttle=False`` pula o rate-limit global (lock + sleep). Uso esperado:
+        # paginacao de TOC (endpoints SSR baratos do mesmo backend) onde o adapter
+        # quer paralelizar via gather/semaforo. NUNCA usar pra fetch_chapter, que
+        # eh o caminho quente sujeito a anti-bot.
+        if throttle:
+            await self._throttle()
+        log.debug("GET", url=url, throttle=throttle)
         resp = await self._request(url)
         return resp.text
 
-    async def get_bytes(self, url: str) -> bytes:
-        await self._throttle()
-        log.debug("GET (bytes)", url=url)
+    async def get_bytes(self, url: str, *, throttle: bool = True) -> bytes:
+        if throttle:
+            await self._throttle()
+        log.debug("GET (bytes)", url=url, throttle=throttle)
         resp = await self._request(url)
         return resp.content
 

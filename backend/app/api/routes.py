@@ -171,6 +171,15 @@ def get_download(job_id: str, jobs: JobManager = Depends(get_jobs)) -> JobStatus
     return job.to_status()
 
 
+@router.post("/downloads/{job_id}/cancel", response_model=JobStatus)
+def cancel_download(job_id: str, jobs: JobManager = Depends(get_jobs)) -> JobStatus:
+    """Cancela um job 'queued' ou 'running'. Idempotente em estados terminais."""
+    job = jobs.cancel(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="job nao encontrado")
+    return job.to_status()
+
+
 @router.get("/downloads/{job_id}/file")
 def download_file(job_id: str, jobs: JobManager = Depends(get_jobs)) -> FileResponse:
     job = jobs.get(job_id)

@@ -9,7 +9,8 @@ import {
   ImageIcon,
   Loader2,
   RefreshCw,
-  Send
+  Send,
+  X
 } from 'lucide-react'
 import { api, type JobStatus, type TranslationFailure } from '@renderer/lib/api'
 import { useJobs } from '@renderer/context/JobsContext'
@@ -38,6 +39,8 @@ function StatusIcon({ status }: { status: JobStatus['status'] }): React.JSX.Elem
       return <CircleCheck className="size-4 text-[var(--book-3)]" />
     case 'error':
       return <CircleAlert className="size-4 text-[var(--ink-stamp)]" />
+    case 'cancelled':
+      return <X className="size-4 text-[var(--ink-400)]" />
   }
 }
 
@@ -46,6 +49,7 @@ function statusLabel(job: JobStatus): string {
     case 'queued':
       return 'na fila'
     case 'running':
+      if (job.stage === 'meta') return 'buscando lista de capítulos'
       if (job.stage === 'translate') return 'traduzindo'
       if (job.stage === 'cover') return 'gerando capa com IA'
       return 'baixando'
@@ -58,6 +62,8 @@ function statusLabel(job: JobStatus): string {
     }
     case 'error':
       return `erro · ${job.error ?? 'desconhecido'}`
+    case 'cancelled':
+      return 'cancelado'
   }
 }
 
@@ -173,10 +179,16 @@ function JobCard({
   const [sending, setSending] = useState(false)
   const [retrying, setRetrying] = useState(false)
   const [regeneratingCover, setRegeneratingCover] = useState(false)
+  const [cancelling, setCancelling] = useState(false)
   const [sendMsg, setSendMsg] = useState<{ ok: boolean; text: string } | null>(null)
   const pct = job.total ? Math.round((job.done / job.total) * 100) : 0
   const hasTranslationFailures = job.status === 'done' && job.translation_failed > 0
   const canRegenerateCover = job.status === 'done' && job.ai_cover
+  const canCancel = job.status === 'queued' || job.status === 'running'
+  // Durante 'meta' o `total` ainda e 0 — barra rainbow indeterminada ajuda o
+  // user a ver que esta progredindo (especialmente pra adapters lentos como
+  // NovelFull que paginam ~60 vezes a TOC antes de ter o total).
+  const indeterminate = job.status === 'running' && job.total === 0
 
   async function sendKindle(): Promise<void> {
     setSending(true)
@@ -208,6 +220,20 @@ function JobCard({
       setSendMsg({ ok: false, text: err instanceof Error ? err.message : String(err) })
     } finally {
       setRegeneratingCover(false)
+    }
+  }
+
+  async function cancelJob(): Promise<void> {
+    setCancelling(true)
+    setSendMsg(null)
+    try {
+      await api.cancelDownload(job.id)
+      // O WS publica o evento 'cancelled' — UI atualiza via JobsContext.
+      // Nao precisamos setar estado local; o badge muda sozinho.
+    } catch (err) {
+      setSendMsg({ ok: false, text: err instanceof Error ? err.message : String(err) })
+    } finally {
+      setCancelling(false)
     }
   }
 
@@ -283,7 +309,12 @@ function JobCard({
           </span>
         </div>
 
-        <Progress value={pct} rainbow={job.translate_to !== null && job.stage === 'translate'} />
+        <Progress
+          value={indeterminate ? 100 : pct}
+          rainbow={
+            indeterminate || (job.translate_to !== null && job.stage === 'translate')
+          }
+        />
 
         <div className="font-sans flex items-center justify-between text-[12px] text-[var(--ink-500)]">
           <span className="truncate italic">{job.current ?? '—'}</span>
@@ -291,6 +322,29 @@ function JobCard({
             {job.done}/{job.total || '?'}
           </span>
         </div>
+
+        {canCancel && (
+          <div className="flex items-center gap-2 pt-1">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={cancelJob}
+              disabled={cancelling}
+            >
+              {cancelling ? (
+                <Loader2 className="size-3.5 animate-spin" />
+              ) : (
+                <X className="size-3.5" />
+              )}
+              Cancelar
+            </Button>
+            {sendMsg && !sendMsg.ok && (
+              <span className="font-sans text-[12px] text-[var(--ink-stamp)]">
+                {sendMsg.text}
+              </span>
+            )}
+          </div>
+        )}
 
         {job.status === 'done' && (
           <>

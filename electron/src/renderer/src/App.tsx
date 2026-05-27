@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { JobsProvider } from '@renderer/context/JobsContext'
 import { Sidebar, type View } from '@renderer/components/Sidebar'
+import { About } from '@renderer/components/About'
 import { NewCapture } from '@renderer/components/NewCapture'
 import { Downloads } from '@renderer/components/Downloads'
 import { Library } from '@renderer/components/Library'
@@ -10,7 +11,8 @@ import { Usage } from '@renderer/components/Usage'
 import { Settings } from '@renderer/components/Settings'
 
 function App(): React.JSX.Element {
-  const [view, setView] = useState<View>('new')
+  // Default 'about' — primeira impressao do app. User navega pra 'new' depois.
+  const [view, setView] = useState<View>('about')
   const [selectedNovelId, setSelectedNovelId] = useState<number | null>(null)
   const [prefilledUrl, setPrefilledUrl] = useState<string | null>(null)
   const [glossaryNovelId, setGlossaryNovelId] = useState<number | null>(null)
@@ -42,6 +44,7 @@ function App(): React.JSX.Element {
         <Sidebar view={view} onNavigate={navigate} />
         <main className="relative flex-1 overflow-auto">
           <div className="mx-auto max-w-3xl px-10 py-12">
+            {view === 'about' && <About />}
             {view === 'new' && (
               <NewCapture
                 prefilledUrl={prefilledUrl}

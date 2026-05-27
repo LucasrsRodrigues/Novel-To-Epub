@@ -3,12 +3,19 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from typing import Callable, Optional
 from urllib.parse import urlparse
 
 from app.models import ChapterContent, ChapterRef, NovelMeta
 from app.scraper.cleaner import default_clean
 from app.scraper.http import HttpClient
 from app.scraper.registry import registry
+
+# (done, total, label) — chamado pelo adapter durante fetch_novel quando a
+# coleta de metadados eh demorada (paginacao da TOC, etc). Orchestrator
+# repassa pro JobManager.on_progress -> UI ve "pagina 12/66" em vez de
+# ficar olhando "0%" parado.
+MetaProgressCb = Callable[[int, int, str], None]
 
 
 class BaseAdapter(ABC):
@@ -26,6 +33,9 @@ class BaseAdapter(ABC):
 
     def __init__(self, client: HttpClient):
         self.client = client
+        # Callback opcional pra reportar progresso durante fetch_novel.
+        # Orchestrator seta apos o resolve. Adapter chama se setado.
+        self.on_meta_progress: Optional[MetaProgressCb] = None
 
     def __init_subclass__(cls, **kwargs):
         super().__init_subclass__(**kwargs)

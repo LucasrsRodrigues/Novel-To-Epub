@@ -10,7 +10,7 @@ function resolveBase(): string {
 
 const API_BASE = resolveBase()
 
-export type JobStatusKind = 'queued' | 'running' | 'done' | 'error'
+export type JobStatusKind = 'queued' | 'running' | 'done' | 'error' | 'cancelled'
 
 export interface TranslationFailure {
   chapter: number
@@ -264,6 +264,8 @@ export const api = {
     http<JobStatus>('/api/downloads', { method: 'POST', body: JSON.stringify(req) }),
   listDownloads: () => http<JobStatus[]>('/api/downloads'),
   getDownload: (id: string) => http<JobStatus>(`/api/downloads/${id}`),
+  cancelDownload: (id: string) =>
+    http<JobStatus>(`/api/downloads/${id}/cancel`, { method: 'POST' }),
   sendToKindle: (id: string) =>
     http<{ status: string; to: string }>(`/api/downloads/${id}/kindle`, { method: 'POST' }),
   regenerateCover: (id: string) =>

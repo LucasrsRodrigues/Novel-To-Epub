@@ -90,6 +90,7 @@ Thumbs.db
 # dotenv
 .env
 .env.*
+!.env.example
 
 # Logs
 *.log

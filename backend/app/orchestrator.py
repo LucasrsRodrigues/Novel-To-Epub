@@ -63,6 +63,16 @@ async def download_to_epub(
 
     async with HttpClient() as client:
         adapter = registry.resolve(url, client)
+        # Sinaliza pra UI que estamos buscando metadados ANTES de fetch_novel —
+        # adapters como NovelFull paginam a TOC (~60 paginas) e nesse intervalo
+        # o usuario fica olhando "0%" sem nada. Mostra ao menos o nome do adapter.
+        if progress:
+            progress("meta", 0, 0, f"Buscando lista de capítulos em {adapter.name}…", False)
+            # Adapters que paginam podem reportar progresso granular ("pg 12/66")
+            # via este callback opcional — propagamos pra mesma UI.
+            adapter.on_meta_progress = lambda done, total, label: progress(
+                "meta", done, total, label, False
+            )
         meta = await adapter.fetch_novel(url)
         if on_meta:
             on_meta(meta)

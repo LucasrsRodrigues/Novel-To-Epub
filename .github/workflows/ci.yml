@@ -1,0 +1,67 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  backend-lint:
+    name: Backend · ruff
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+          cache-dependency-path: backend/requirements.txt
+      - name: Install ruff
+        run: pip install ruff
+      - name: Lint
+        run: ruff check backend/
+
+  backend-import:
+    name: Backend · imports OK
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+          cache-dependency-path: backend/requirements.txt
+      - name: Install
+        working-directory: backend
+        run: pip install -r requirements.txt
+      - name: Smoke import test
+        working-directory: backend
+        # Verifica que tudo importa — pega erros tipo type-annotation Python 3.14-only
+        # ou import circular antes de chegar em runtime.
+        run: |
+          python -c "from app.api.server import app; print('api OK')"
+          python -c "from app.orchestrator import download_to_epub; print('orchestrator OK')"
+          python -c "from app.scraper.registry import registry; from app.scraper.adapters import *; print(f'adapters: {sorted(a.name for a in registry._adapters)}')"
+
+  renderer-typecheck:
+    name: Renderer · tsc --noEmit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: electron/package-lock.json
+      - name: Install
+        working-directory: electron
+        # --ignore-scripts pula postinstall do electron-builder (~150MB) que nao
+        # eh necessario pra typecheck. Builds reais nao usam esse caminho.
+        run: npm ci --ignore-scripts || npm install --ignore-scripts
+      - name: Typecheck renderer
+        working-directory: electron
+        run: npx tsc -p tsconfig.web.json --noEmit
+      - name: Typecheck main + preload
+        working-directory: electron
+        run: npx tsc -p tsconfig.node.json --noEmit
