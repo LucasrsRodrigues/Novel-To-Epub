@@ -16,6 +16,7 @@ Notas sobre o ebooklib:
 
 from __future__ import annotations
 
+import re
 from html import escape
 from pathlib import Path
 
@@ -24,6 +25,20 @@ from slugify import slugify
 
 from app.logging_conf import get_logger
 from app.models import ChapterContent, NovelMeta
+
+# Tira o prefixo "Capítulo N / Chapter N / Cap. N" do início do título — o EPUB já
+# mostra o número da posição ao lado, então "02 Capítulo 1 Prólogo" vira "02 Prólogo".
+# Só o prefixo INICIAL é removido (números no fim do nome, ex: "...Magia Falsa 2",
+# ficam). Se sobrar vazio (título era só "Capítulo 1"), mantém o original.
+_CHAPTER_PREFIX_RE = re.compile(
+    r"^\s*(?:cap[íi]tulo|chapter|cap|ch)\.?\s*-?\d+\s*[:.\-–—)]?\s*",
+    re.IGNORECASE,
+)
+
+
+def clean_chapter_title(title: str) -> str:
+    cleaned = _CHAPTER_PREFIX_RE.sub("", title).strip()
+    return cleaned or title.strip()
 
 log = get_logger("epub")
 
@@ -135,12 +150,13 @@ def build_epub(
     # --- Capitulos (ordenados por indice) ---
     epub_chapters: list[epub.EpubHtml] = []
     for ch in sorted(chapters, key=lambda c: c.index):
+        ctitle = clean_chapter_title(ch.title)
         item = epub.EpubHtml(
-            title=ch.title,
+            title=ctitle,
             file_name=f"chap_{ch.index:05d}.xhtml",
             lang=language,
         )
-        item.content = _CHAPTER.format(title=escape(ch.title), body=ch.html)
+        item.content = _CHAPTER.format(title=escape(ctitle), body=ch.html)
         item.add_item(css)
         book.add_item(item)
         epub_chapters.append(item)
@@ -157,7 +173,7 @@ def build_epub(
             _TOC_ITEM.format(
                 href=item.file_name,
                 num=f"{ch.index:02d}",
-                title=escape(ch.title),
+                title=escape(clean_chapter_title(ch.title)),
             )
             for ch, item in zip(sorted(chapters, key=lambda c: c.index), epub_chapters)
         )
