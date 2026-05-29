@@ -30,6 +30,87 @@ class RebuildError(RuntimeError):
     pass
 
 
+ProgressCb = "Callable[[str, int, int, str, bool], None]"
+
+
+async def regenerate_cover_only(
+    volume_id: int,
+    *,
+    cover_style: str | None = None,
+    progress=None,
+    on_complete=None,
+):
+    """Regera SO a capa por IA de um volume e recompila o EPUB do cache.
+
+    NAO baixa nem re-traduz nada (ao contrario do fluxo antigo, que re-enfileirava
+    um download completo e re-tentava capitulos que falharam → storm de 429). Usa
+    os capitulos ja em cache so pra montar o brief, gera a capa (Gemini) e chama
+    ``rebuild_volume_epub`` pra remontar o .epub com a capa nova. Se a geracao
+    falhar, a capa antiga fica intacta (force so sobrescreve no sucesso) e o
+    motivo vai em ``cover_error`` pro on_complete.
+    """
+    from app.image_gen.cover_generator import generate_or_cache_cover, CoverGenError
+    from app.translation.glossary import GlossaryStore
+
+    vol = VolumeStore().get(volume_id)
+    if vol is None:
+        raise RebuildError(f"volume {volume_id} nao existe")
+    novel_id = vol["novel_id"]
+    novel_dict = ChapterCache().get_novel(novel_id)
+    if novel_dict is None:
+        raise RebuildError(f"novel {novel_id} sumiu do cache")
+
+    meta = NovelMeta(
+        title=novel_dict["title"], author=novel_dict["author"],
+        description=novel_dict["description"], source_url=novel_dict["source_url"],
+        cover_url=novel_dict["cover_url"], chapters=[],
+    )
+
+    # Capitulos do cache (EN crus) só pra o brief amostrar inicio/meio/fim.
+    cache = ChapterCache()
+    start = vol["start"]
+    end = vol["end"]
+    if end is None:
+        cached = sorted(cache.cached_indices(novel_id))
+        end = max(cached) if cached else start
+    chapters: list[ChapterContent] = []
+    for idx in range(start, end + 1):
+        ch = cache.get_chapter(novel_id, idx)
+        if ch is not None:
+            chapters.append(ch)
+
+    # Escolha explicita de estilo vira o default da novel (igual ao download).
+    if cover_style:
+        cache.set_default_cover_style(novel_id, cover_style)
+
+    cover_error: str | None = None
+    if progress:
+        progress("cover", 0, 1, "gerando capa com IA...", False)
+    try:
+        glossary = GlossaryStore().list_for_novel(novel_id)
+        await generate_or_cache_cover(
+            novel_id=novel_id, novel_meta=meta, volume_title=vol["volume_title"],
+            chapters=chapters, glossary=glossary, cover_style=cover_style, force=True,
+        )
+        if progress:
+            progress("cover", 1, 1, "capa pronta", False)
+    except CoverGenError as exc:
+        cover_error = str(exc)
+        log.warning("cover_only_skipped", reason=cover_error)
+    except Exception as exc:
+        cover_error = str(exc)
+        log.warning("cover_only_failed", error=cover_error)
+    if cover_error and progress:
+        progress("cover", 1, 1, f"capa falhou: {cover_error[:120]}", False)
+
+    # Remonta o .epub do cache (capa nova se OK; a antiga se falhou). Zero token.
+    path = await rebuild_volume_epub(volume_id)
+
+    if on_complete:
+        on_complete({"cover_error": cover_error, "volume_id": volume_id})
+    return path
+
+
 async def rebuild_volume_epub(volume_id: int) -> Path:
     """Re-monta o EPUB de um volume persistido a partir do cache.
 

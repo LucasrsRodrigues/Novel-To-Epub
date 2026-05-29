@@ -37,6 +37,9 @@ class Job:
     volume_title: str | None = None
     ai_cover: bool = False
     cover_style: str | None = None  # id do estilo de arte (None = IA decide)
+    # Quando setado, este job NAO baixa/traduz — so regera a capa do volume e
+    # recompila o .epub do cache (caminho leve "so capa"). None = job normal.
+    cover_only_volume_id: int | None = None
     # Volume a remover (registro + .epub) depois que este job gerar o novo .epub
     # com sucesso. Usado pra "traduzir no lugar" (substitui o original sem traducao).
     replace_volume_id: int | None = None
@@ -146,6 +149,27 @@ class JobManager:
         )
         return job
 
+    def enqueue_cover_regen(self, vol: dict, cover_style: str | None) -> Job:
+        """Enfileira um job LEVE de regerar só a capa (sem baixar/traduzir).
+        ``vol`` e o dict do VolumeStore (campos só pra exibir o card no Downloads)."""
+        job = Job(
+            id=uuid.uuid4().hex[:12],
+            url=vol["source_url"],
+            start=vol["start"],
+            end=vol["end"],
+            with_cover=vol["with_cover"],
+            translate_to=vol["translate_to"],
+            volume_title=vol["volume_title"],
+            ai_cover=True,
+            cover_style=cover_style,
+            cover_only_volume_id=vol["id"],
+        )
+        self._jobs[job.id] = job
+        self._queue.put_nowait(job.id)
+        self._publish("queued", job)
+        log.info("cover_regen_enqueued", id=job.id, volume_id=vol["id"], style=cover_style)
+        return job
+
     def get(self, job_id: str) -> Job | None:
         return self._jobs.get(job_id)
 
@@ -250,6 +274,24 @@ class JobManager:
             vid = stats.get("volume_id")
             if isinstance(vid, int):
                 job.volume_id = vid
+
+        if job.cover_only_volume_id is not None:
+            # Caminho leve: regera SO a capa + recompila do cache (sem download/traducao).
+            from app.rebuild import regenerate_cover_only
+
+            job.stage = "cover"
+            path = await regenerate_cover_only(
+                job.cover_only_volume_id,
+                cover_style=job.cover_style,
+                progress=on_progress,
+                on_complete=on_complete,
+            )
+            job.output_path = str(path)
+            job.status = "done"
+            self._touch(job)
+            self._publish("done", job)
+            log.info("cover_regen_done", id=job.id, path=str(path))
+            return
 
         path = await download_to_epub(
             job.url,

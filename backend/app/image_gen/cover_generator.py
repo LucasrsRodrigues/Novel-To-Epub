@@ -551,18 +551,22 @@ async def generate_or_cache_cover(
     chapters: list[ChapterContent],
     glossary: list[GlossaryEntry],
     cover_style: str | None = None,
+    force: bool = False,
     text_model: str = "gemini-2.5-flash",
     image_model: str = "gemini-2.5-flash-image",
 ) -> tuple[bytes, str]:
     """Retorna ``(image_bytes, mime)``. Usa cache se existir, senao gera + salva.
 
     ``cover_style`` e o id de um estilo de arte (ver ``cover_styles.COVER_STYLES``);
-    None/desconhecido = a IA decide o estilo a partir do conteudo (padrao)."""
+    None/desconhecido = a IA decide o estilo a partir do conteudo (padrao).
+    ``force=True`` regenera ignorando o cache; so sobrescreve no SUCESSO (se a
+    geracao falhar, levanta a excecao e a capa antiga no cache fica intacta)."""
     cache = CoverCache()
-    cached = cache.get(novel_id, volume_title)
-    if cached is not None:
-        log.info("cover_cache_hit", novel_id=novel_id, volume_title=volume_title)
-        return cached
+    if not force:
+        cached = cache.get(novel_id, volume_title)
+        if cached is not None:
+            log.info("cover_cache_hit", novel_id=novel_id, volume_title=volume_title)
+            return cached
 
     novel_row = ChapterCache().get_novel(novel_id)
     # Consistencia de serie: sem estilo explicito, herda o estilo-padrao da novel

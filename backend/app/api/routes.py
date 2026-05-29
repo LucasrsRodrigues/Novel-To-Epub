@@ -324,21 +324,10 @@ def regenerate_volume_cover(
     vol = VolumeStore().get(volume_id)
     if vol is None:
         raise HTTPException(status_code=404, detail="volume nao encontrado")
-    # Se ja tinha capa IA cacheada, apaga pra forçar MISS → regenera. Se nao
-    # tinha (primeira capa), o delete e no-op.
-    CoverCache().delete(vol["novel_id"], vol["volume_title"])
-    new_job = jobs.enqueue(
-        DownloadRequest(
-            url=vol["source_url"],
-            start=vol["start"],
-            end=vol["end"],
-            with_cover=vol["with_cover"],
-            translate_to=vol["translate_to"],
-            volume_title=vol["volume_title"],
-            ai_cover=True,
-            cover_style=body.cover_style if body else None,
-        )
-    )
+    # Caminho LEVE "so capa": regera a capa do cache + recompila o .epub, sem
+    # re-baixar nem re-traduzir (o fluxo antigo re-enfileirava um download
+    # completo, que re-tentava caps que falharam → storm de 429).
+    new_job = jobs.enqueue_cover_regen(vol, body.cover_style if body else None)
     return new_job.to_status()
 
 
@@ -375,20 +364,9 @@ def regenerate_all_covers(
 
     out: list[JobStatus] = []
     for v in targets:
-        CoverCache().delete(novel_id, v["volume_title"])
-        job = jobs.enqueue(
-            DownloadRequest(
-                url=v["source_url"],
-                start=v["start"],
-                end=v["end"],
-                with_cover=v["with_cover"],
-                translate_to=v["translate_to"],
-                volume_title=v["volume_title"],
-                ai_cover=True,
-                cover_style=style,
-            )
-        )
-        out.append(job.to_status())
+        # Caminho leve "so capa" — sem re-download/traducao. O 1o job re-estabelece
+        # a âncora (resetada acima); os demais herdam → coleção coerente.
+        out.append(jobs.enqueue_cover_regen(v, style).to_status())
     return out
 
 
