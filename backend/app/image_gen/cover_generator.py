@@ -387,27 +387,50 @@ def _build_image_prompt(
         if volume_title
         else f"for the web novel \"{novel_meta.title}\""
     )
-    # Estilo escolhido pelo usuario domina a direcao de arte. Sem escolha, usa a
-    # `style` que o modelo de texto inferiu do conteudo (comportamento padrao).
-    art_direction = style_override or brief.style
-    # A linha "Painterly digital illustration. Cinematic..." e opinativa demais e
-    # briga com estilos como Flat/Minimalist/Cyberpunk — so a aplicamos no modo
-    # automatico. Com estilo escolhido, o proprio `style_override` manda no look.
-    medium_line = (
-        "" if style_override else "\n- Painterly digital illustration. Cinematic, atmospheric lighting."
-    )
-    # Coesao de serie (paleta + luz) entre ART DIRECTION e COMPOSITION — a cena varia,
-    # mas a paleta/luz seguem a 1a capa. Anti-texto (CRITICAL) continua por ultimo.
+    # Coesao de serie (paleta + luz) — a cena varia, paleta/luz seguem a 1a capa.
     series_clause = _series_consistency_block(series_block) if series_block else ""
+
+    if style_override:
+        # Estilo TRAVADO: ele tem que liderar e dominar — senao o Gemini, pra cenas
+        # ricas (personagem+cenario), ignora a tecnica e cai num realismo generico.
+        # Por isso o estilo vem PRIMEIRO, enfatico, e a cena e renderizada NELE.
+        return f"""A book cover illustration {title_clause}.
+
+ART STYLE — THE SINGLE MOST IMPORTANT REQUIREMENT, it must define the ENTIRE image:
+{style_override}
+Render EVERY element of the scene below in this exact style/medium and technique.
+Do NOT default to a generic realistic or painterly illustration — the whole image,
+including the character/subject, must unmistakably read as this style.
+
+SCENE TO DEPICT (drawn fully in the art style above): {brief.scene}{series_clause}
+
+COMPOSITION:
+- Portrait orientation, 2:3 aspect ratio (vertical book cover).
+- One strong focal subject. Rule of thirds composition.
+- Rich detail without clutter.
+- Keep the lower third calmer and less busy (no faces or critical detail at the
+  very bottom) — a title bar is added there afterwards.
+
+ABSOLUTELY NO TEXT — THIS IS CRITICAL:
+- Do NOT render any letters, words, numbers, titles, the series name, captions,
+  signatures, watermarks, logos, frames, borders, or UI elements.
+- The title and series name are composited separately AFTER generation — if you
+  draw any text it will collide with it and look broken.
+- If the scene would naturally include text (book spines, signs, banners, runes
+  as letters), leave those surfaces blank or use abstract non-letter marks.
+- Output a PURE, 100% TEXTLESS illustration."""
+
+    # Modo automatico (sem estilo travado): a IA decide a estetica pela `style` do brief.
     return f"""A dramatic book cover illustration {title_clause}.
 
 SCENE TO DEPICT: {brief.scene}
 
-ART DIRECTION: {art_direction}{series_clause}
+ART DIRECTION: {brief.style}{series_clause}
 
 COMPOSITION:
 - Portrait orientation, 2:3 aspect ratio (vertical book cover).
-- One strong focal subject. Rule of thirds composition.{medium_line}
+- One strong focal subject. Rule of thirds composition.
+- Painterly digital illustration. Cinematic, atmospheric lighting.
 - Rich detail without clutter.
 - Keep the lower third calmer and less busy (no faces or critical detail at the
   very bottom) — a title bar is added there afterwards.
