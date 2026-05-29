@@ -873,6 +873,7 @@ function PersistedVolumeRow({
         translate_to: targetLang,
         volume_title: vol.volume_title,
         ai_cover: vol.ai_cover,
+        skip_chapters: vol.skip_chapters,
         replace_volume_id: vol.id
       })
       setSendMsg({
@@ -927,7 +928,8 @@ function PersistedVolumeRow({
         with_cover: vol.with_cover,
         translate_to: vol.translate_to,
         volume_title: vol.volume_title,
-        ai_cover: vol.ai_cover
+        ai_cover: vol.ai_cover,
+        skip_chapters: vol.skip_chapters
       })
       setSendMsg({
         ok: true,

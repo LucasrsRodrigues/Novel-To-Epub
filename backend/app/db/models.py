@@ -362,6 +362,9 @@ class GeneratedVolume(Base):
     translate_to: Mapped[str | None] = mapped_column(String(20), nullable=True)
     output_path: Mapped[str] = mapped_column(Text)
     translation_failed: Mapped[int] = mapped_column(Integer, default=0)
+    # CSV de indices de capitulo IGNORADOS neste volume (ex: "1" pula o cap-lixo
+    # inicial tipo "Chapter -1/0"). Persistido pra recompilar/regerar respeitarem.
+    skip_chapters: Mapped[str] = mapped_column(String(500), default="")
     # Guardado pra facilitar volta pra requisitar (Continuar tradução etc) sem
     # ter que ir ao Novel.
     source_url: Mapped[str] = mapped_column(Text)

@@ -50,6 +50,7 @@ async def download_to_epub(
     volume_title: str | None = None,
     ai_cover: bool = False,
     cover_style: str | None = None,
+    skip_chapters: list[int] | None = None,
     on_complete: Callable[[dict], None] | None = None,
 ) -> Path:
     output_dir = Path(output_dir) if output_dir else settings.output_dir
@@ -101,7 +102,12 @@ async def download_to_epub(
         if total == 0:
             raise RuntimeError(f"nenhum capitulo encontrado em {url}")
         last = total if end is None else min(end, total)
-        refs = [r for r in meta.chapters if start <= r.index <= last]
+        skip_set = set(skip_chapters or [])
+        refs = [
+            r for r in meta.chapters if start <= r.index <= last and r.index not in skip_set
+        ]
+        if skip_set:
+            log.info("chapters_skipped", skipped=sorted(skip_set), kept=len(refs))
         if not refs:
             raise ValueError(
                 f"intervalo vazio (start={start}, end={end}, total={total})"
@@ -254,6 +260,7 @@ async def download_to_epub(
         translate_to=translate_to,
         output_path=str(path),
         translation_failed=len(translation_failures),
+        skip_chapters=sorted(skip_set),
     )
 
     log.info(

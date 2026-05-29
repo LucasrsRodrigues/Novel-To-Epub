@@ -32,6 +32,8 @@ class DownloadRequest(BaseModel):
     # Estilo de arte da capa (id em image_gen.cover_styles). None = a IA decide a
     # estetica pelo conteudo (padrao). So tem efeito quando ai_cover=True.
     cover_style: str | None = None
+    # Indices de capitulo a IGNORAR neste volume (ex: [1] pula o cap-lixo inicial).
+    skip_chapters: list[int] = Field(default_factory=list)
     # Quando setado, o volume com este id e removido (registro + .epub) DEPOIS que
     # o novo .epub for gerado com sucesso. Usado pra "traduzir no lugar": o volume
     # original (sem traducao) some quando a versao traduzida nasce, evitando
@@ -180,6 +182,7 @@ class VolumeOut(BaseModel):
     translate_to: str | None
     output_path: str
     translation_failed: int
+    skip_chapters: list[int] = []
     source_url: str
     created_at: datetime
     updated_at: datetime

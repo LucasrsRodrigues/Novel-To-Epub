@@ -27,6 +27,7 @@ class VolumeStore:
         translate_to: str | None,
         output_path: str,
         translation_failed: int,
+        skip_chapters: list[int] | None = None,
     ) -> int:
         """Upsert por (novel_id, output_path). Devolve o id do volume."""
         with get_session() as s:
@@ -50,6 +51,7 @@ class VolumeStore:
             row.ai_cover = ai_cover
             row.translate_to = translate_to
             row.translation_failed = translation_failed
+            row.skip_chapters = ",".join(str(i) for i in (skip_chapters or []))
             row.source_url = source_url
             s.commit()
             s.refresh(row)
@@ -104,6 +106,9 @@ def _to_dict(row: orm.GeneratedVolume) -> dict:
         "translate_to": row.translate_to,
         "output_path": row.output_path,
         "translation_failed": row.translation_failed,
+        "skip_chapters": [
+            int(x) for x in (row.skip_chapters or "").split(",") if x.strip().lstrip("-").isdigit()
+        ],
         "source_url": row.source_url,
         "created_at": row.created_at,
         "updated_at": row.updated_at,

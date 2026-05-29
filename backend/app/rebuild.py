@@ -157,7 +157,10 @@ async def rebuild_volume_epub(volume_id: int) -> Path:
             raise RebuildError(f"novel {novel_id} sem capitulos em cache")
         end = max(cached)
 
+    skip_set = set(vol.get("skip_chapters") or [])
     for idx in range(start, end + 1):
+        if idx in skip_set:
+            continue  # capitulo ignorado neste volume (ex: cap-lixo inicial)
         ch = cache.get_chapter(novel_id, idx)
         if ch is None:
             missing.append(idx)
@@ -225,6 +228,7 @@ async def rebuild_volume_epub(volume_id: int) -> Path:
         translate_to=translate_to,
         output_path=str(out_path),
         translation_failed=translation_failed,
+        skip_chapters=list(skip_set),
     )
 
     log.info(

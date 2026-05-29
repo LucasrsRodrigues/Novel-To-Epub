@@ -42,6 +42,8 @@ export function NewCapture({
   const [volumeTitle, setVolumeTitle] = useState('')
   const [start, setStart] = useState('1')
   const [end, setEnd] = useState('')
+  // Capítulos a ignorar (ex: "1" pula o cap-lixo inicial tipo "Chapter -1/0").
+  const [skipChapters, setSkipChapters] = useState('')
   const [withCover, setWithCover] = useState(true)
   const [translate, setTranslate] = useState(false)
   const [aiCover, setAiCover] = useState(false)
@@ -187,6 +189,18 @@ export function NewCapture({
     setVolumeTitle(v.name)
   }
 
+  // "1, 3, 5" → [1,3,5] (ignora lixo, dedup). Vazio → [].
+  function parseSkip(s: string): number[] {
+    return [
+      ...new Set(
+        s
+          .split(/[\s,]+/)
+          .map((x) => parseInt(x, 10))
+          .filter((n) => Number.isFinite(n))
+      )
+    ]
+  }
+
   async function onSubmit(e: React.FormEvent): Promise<void> {
     e.preventDefault()
     setError(null)
@@ -200,7 +214,8 @@ export function NewCapture({
         translate_to: translate ? 'pt-BR' : null,
         volume_title: volumeTitle.trim() || null,
         ai_cover: aiCover,
-        cover_style: aiCover ? coverStyle || null : null
+        cover_style: aiCover ? coverStyle || null : null,
+        skip_chapters: parseSkip(skipChapters)
       })
       setJobId(res.id)
     } catch (err) {
@@ -352,6 +367,25 @@ export function NewCapture({
                 onChange={(e) => setEnd(e.target.value)}
               />
             </div>
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="skip">
+              Ignorar capítulos
+              <span className="font-sans ml-1 text-[10px] tracking-[0.18em] text-[var(--ink-400)]">
+                opcional
+              </span>
+            </Label>
+            <Input
+              id="skip"
+              placeholder="ex: 1  (pula entradas-lixo tipo 'Chapter -1/0')"
+              value={skipChapters}
+              onChange={(e) => setSkipChapters(e.target.value)}
+            />
+            <p className="font-sans text-[11px] leading-relaxed text-[var(--ink-400)]">
+              Índices (posição na lista) separados por vírgula. Ex: pegar 1–41 e ignorar{' '}
+              <code className="font-mono">1</code> → sai com 40 capítulos, sem o primeiro.
+            </p>
           </div>
 
           <div className="space-y-3 border-t border-[var(--border-soft)] pt-5">

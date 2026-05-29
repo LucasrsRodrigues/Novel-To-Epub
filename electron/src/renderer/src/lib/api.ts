@@ -53,6 +53,8 @@ export interface DownloadRequest {
   ai_cover?: boolean
   // Id do estilo de arte da capa (ver lib/coverStyles). undefined/null = IA decide.
   cover_style?: string | null
+  // Índices de capítulo a ignorar neste volume (ex: [1] pula o cap-lixo inicial).
+  skip_chapters?: number[]
   // Quando setado, o volume com este id é removido (registro + .epub) assim que
   // o novo .epub nascer ok. Usado p/ "traduzir no lugar" (substitui o original).
   replace_volume_id?: number | null
@@ -184,6 +186,7 @@ export interface VolumeOut {
   translate_to: string | null
   output_path: string
   translation_failed: number
+  skip_chapters: number[]
   source_url: string
   created_at: string
   updated_at: string
