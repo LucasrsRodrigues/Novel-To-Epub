@@ -76,6 +76,8 @@ export interface NovelPreview {
   description: string | null
   total_chapters: number
   volumes: VolumePreview[] // [] se adapter não detecta volumes
+  // Estilo de capa default da novel (se já capturada antes). null = nova/sem default.
+  default_cover_style: string | null
 }
 
 export interface NovelSummary {
@@ -93,6 +95,7 @@ export interface NovelDetail extends NovelSummary {
   source_url: string
   wiki_url: string | null
   wiki_status: string
+  default_cover_style: string | null
 }
 
 export interface AppSettingsView {

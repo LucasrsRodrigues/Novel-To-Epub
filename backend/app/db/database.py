@@ -46,6 +46,7 @@ _PENDING_COLUMNS: list[tuple[str, str, str]] = [
     ("app_settings", "translation_model", "VARCHAR(50) DEFAULT 'gemini-2.5-flash'"),
     ("novels", "wiki_url", "TEXT"),
     ("novels", "wiki_status", "VARCHAR(20) DEFAULT 'unknown'"),
+    ("novels", "default_cover_style", "VARCHAR(60)"),
     # Cascade providers (mai 2026)
     ("app_settings", "groq_api_key", "TEXT"),
     ("app_settings", "openrouter_api_key", "TEXT"),

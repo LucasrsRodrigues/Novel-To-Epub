@@ -41,6 +41,10 @@ class Novel(Base):
     wiki_url: Mapped[str | None] = mapped_column(Text, nullable=True)
     # unknown = ainda nao tentou; detected = achou; none = nao tem wiki
     wiki_status: Mapped[str] = mapped_column(String(20), default="unknown")
+    # Estilo de arte default pra capa por IA desta novel (id em cover_styles).
+    # Definido pela ultima escolha explicita de estilo num download/regerar.
+    # None = sem default (cai no modo automatico).
+    default_cover_style: Mapped[str | None] = mapped_column(String(60), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )

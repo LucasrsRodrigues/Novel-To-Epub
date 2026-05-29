@@ -35,6 +35,24 @@ class ChapterCache:
             s.commit()
             return novel.id
 
+    def set_default_cover_style(self, novel_id: int, style: str | None) -> None:
+        """Persiste o estilo de capa default da novel (ultima escolha explicita)."""
+        with get_session() as s:
+            novel = s.get(orm.Novel, novel_id)
+            if novel is None:
+                return
+            novel.default_cover_style = style
+            s.commit()
+
+    def get_default_cover_style(self, source_url: str) -> str | None:
+        """Default de capa de uma novel ja cadastrada (busca por source_url).
+        None se a novel ainda nao foi capturada ou nao tem default."""
+        with get_session() as s:
+            novel = s.scalar(
+                select(orm.Novel).where(orm.Novel.source_url == source_url)
+            )
+            return novel.default_cover_style if novel else None
+
     def get_chapter(self, novel_id: int, index: int) -> ChapterContent | None:
         with get_session() as s:
             row = s.scalar(
@@ -105,6 +123,7 @@ class ChapterCache:
                 "source_url": novel.source_url,
                 "wiki_url": novel.wiki_url,
                 "wiki_status": novel.wiki_status,
+                "default_cover_style": novel.default_cover_style,
                 "chapters": count or 0,
             }
 

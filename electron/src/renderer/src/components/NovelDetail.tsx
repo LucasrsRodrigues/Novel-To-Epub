@@ -277,6 +277,7 @@ export function NovelDetail({
                   novelId={novelId}
                   targetLang={targetLang}
                   enabledStyles={enabledStyles}
+                  defaultStyle={novel.default_cover_style}
                   onVolumeUpdated={(updated) =>
                     setPersistedVolumes((prev) =>
                       prev.map((x) => (x.id === updated.id ? updated : x))
@@ -371,6 +372,7 @@ function PersistedVolumeRow({
   novelId,
   targetLang,
   enabledStyles,
+  defaultStyle,
   onVolumeUpdated,
   onVolumeDeleted,
   onOpenEditor
@@ -379,6 +381,7 @@ function PersistedVolumeRow({
   novelId: number
   targetLang: string
   enabledStyles: string[]
+  defaultStyle: string | null
   onVolumeUpdated: (v: VolumeOut) => void
   onVolumeDeleted: (id: number) => void
   onOpenEditor: (vol: VolumeOut) => void
@@ -644,9 +647,14 @@ function PersistedVolumeRow({
                           key={style.id}
                           type="button"
                           onClick={() => regenerateCover(style.id)}
-                          className="font-sans block w-full px-3 py-1.5 text-left text-[13px] text-[var(--ink-700)] hover:bg-[var(--paper-200)]"
+                          className="font-sans flex w-full items-center justify-between gap-2 px-3 py-1.5 text-left text-[13px] text-[var(--ink-700)] hover:bg-[var(--paper-200)]"
                         >
                           {style.label}
+                          {style.id === defaultStyle && (
+                            <span className="text-[10px] tracking-wide text-[var(--stamp-red)]">
+                              padrão
+                            </span>
+                          )}
                         </button>
                       ))}
                     </div>

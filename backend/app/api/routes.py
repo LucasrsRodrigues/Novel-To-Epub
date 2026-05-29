@@ -147,6 +147,10 @@ async def preview_novel(req: NovelPreviewRequest) -> NovelPreviewOut:
     if current is not None:
         volumes.append(current)
 
+    # Se a novel ja foi capturada, devolve o estilo de capa default salvo pra UI
+    # pre-selecionar o seletor. Busca por source_url (chave estavel da novel).
+    default_cover_style = ChapterCache().get_default_cover_style(meta.source_url)
+
     return NovelPreviewOut(
         title=meta.title,
         author=meta.author,
@@ -154,6 +158,7 @@ async def preview_novel(req: NovelPreviewRequest) -> NovelPreviewOut:
         description=meta.description,
         total_chapters=len(meta.chapters),
         volumes=volumes,
+        default_cover_style=default_cover_style,
     )
 
 

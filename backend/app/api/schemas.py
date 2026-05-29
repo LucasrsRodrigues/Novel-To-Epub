@@ -236,6 +236,9 @@ class NovelPreviewOut(BaseModel):
     description: str | None
     total_chapters: int
     volumes: list[VolumePreview]  # vazio se adapter nao detecta volumes
+    # Estilo de capa default desta novel, se ja foi capturada antes. None = nova
+    # ou sem default. UI usa pra pre-selecionar o seletor de estilo na captura.
+    default_cover_style: str | None = None
 
 
 class NovelSummary(BaseModel):
@@ -259,6 +262,7 @@ class NovelDetail(BaseModel):
     source_url: str
     wiki_url: str | None
     wiki_status: str
+    default_cover_style: str | None = None
     chapters: int
 
 

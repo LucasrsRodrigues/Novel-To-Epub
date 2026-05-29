@@ -81,6 +81,13 @@ async def download_to_epub(
         slug = meta.slug or slugify(meta.title)
         novel_id = cache.upsert_novel(adapter.name, slug, meta)
 
+        # Escolha explicita de estilo vira o default desta novel (pre-selecionado
+        # nas proximas capturas/regerar). "Automatico" (cover_style=None) NAO mexe
+        # no default salvo — evita que fluxos como "traduzir no lugar" (que reusam
+        # ai_cover mas nao passam estilo) apaguem a preferencia do usuario.
+        if cover_style:
+            cache.set_default_cover_style(novel_id, cover_style)
+
         # Translator real ja com novel_id+volume_title (cascade usa pra pin)
         translator = None
         if translate_to:

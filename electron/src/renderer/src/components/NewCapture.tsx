@@ -1,15 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import {
-  CircleAlert,
-  CircleCheck,
-  Download,
-  Eye,
-  Languages,
-  Loader2,
-  Sparkles
-} from 'lucide-react'
+import { CircleAlert, CircleCheck, Download, Eye, Languages, Loader2, Sparkles } from 'lucide-react'
 import { api, type JobStatus, type NovelPreview } from '@renderer/lib/api'
 import { useJobs } from '@renderer/context/JobsContext'
+import { COVER_STYLES } from '@renderer/lib/coverStyles'
 import { Button } from '@renderer/components/ui/button'
 import { Input } from '@renderer/components/ui/input'
 import { Label } from '@renderer/components/ui/label'
@@ -60,10 +53,36 @@ export function NewCapture({
   const [withCover, setWithCover] = useState(true)
   const [translate, setTranslate] = useState(false)
   const [aiCover, setAiCover] = useState(false)
+  // Estilo de arte da capa ('' = automático/IA decide). Pré-preenchido pelo
+  // default salvo da novel quando o preview roda.
+  const [coverStyle, setCoverStyle] = useState('')
+  // Estilos habilitados nas Configurações (curadoria do usuário).
+  const [enabledStyles, setEnabledStyles] = useState<string[]>([])
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [jobId, setJobId] = useState<string | null>(null)
   const { jobs } = useJobs()
+
+  // Carrega a curadoria de estilos das Configurações (uma vez).
+  useEffect(() => {
+    api
+      .getSettings()
+      .then((s) => setEnabledStyles(s.cover_styles_enabled ?? []))
+      .catch(() => {})
+  }, [])
+
+  // Opções do seletor: estilos habilitados (ou todos os 24 se nenhum curado, pra
+  // sempre ser usável). Garante que o default salvo apareça mesmo fora da curadoria.
+  const styleOptions = useMemo(() => {
+    const base = enabledStyles.length
+      ? COVER_STYLES.filter((s) => enabledStyles.includes(s.id))
+      : COVER_STYLES
+    if (coverStyle && !base.some((s) => s.id === coverStyle)) {
+      const extra = COVER_STYLES.filter((s) => s.id === coverStyle)
+      return [...extra, ...base]
+    }
+    return base
+  }, [enabledStyles, coverStyle])
 
   const job = jobId ? jobs[jobId] : undefined
   const pct = job && job.total ? Math.round((job.done / job.total) * 100) : 0
@@ -107,7 +126,15 @@ export function NewCapture({
     setPreviewErr(null)
     try {
       const data = await api.previewNovel(trimmed)
-      if (token === previewReqRef.current) setPreview(data)
+      if (token === previewReqRef.current) {
+        setPreview(data)
+        // Pré-seleciona o estilo default salvo desta novel (se houver e o user
+        // ainda não escolheu manualmente). Liga a capa IA pra deixar visível.
+        if (data.default_cover_style) {
+          setCoverStyle(data.default_cover_style)
+          setAiCover(true)
+        }
+      }
     } catch (err) {
       if (token === previewReqRef.current) {
         setPreviewErr(err instanceof Error ? err.message : String(err))
@@ -123,6 +150,7 @@ export function NewCapture({
     setPreview(null)
     setPreviewErr(null)
     setSelectedVolumeIdx(-1)
+    setCoverStyle('') // novel mudou → descarta default pré-selecionado antigo
     previewReqRef.current++
     if (!sourceHasVolumes) return
     const trimmed = url.trim()
@@ -163,7 +191,8 @@ export function NewCapture({
         with_cover: withCover,
         translate_to: translate ? 'pt-BR' : null,
         volume_title: volumeTitle.trim() || null,
-        ai_cover: aiCover
+        ai_cover: aiCover,
+        cover_style: aiCover ? coverStyle || null : null
       })
       setJobId(res.id)
     } catch (err) {
@@ -362,6 +391,35 @@ export function NewCapture({
                 </span>
               </div>
             </label>
+
+            {/* Seletor de estilo de arte — só faz sentido com capa IA ligada. */}
+            {aiCover && (
+              <div className="space-y-1.5 pl-7">
+                <Label htmlFor="cover-style">Estilo de arte</Label>
+                <select
+                  id="cover-style"
+                  value={coverStyle}
+                  onChange={(e) => setCoverStyle(e.target.value)}
+                  className={[
+                    'font-sans h-10 w-full rounded-xl border bg-[var(--paper-50)] px-4 text-sm',
+                    'border-[var(--border-medium)] text-[var(--ink-900)]',
+                    'shadow-[inset_0_1px_2px_rgba(80,50,20,0.05)]',
+                    'outline-none focus-visible:border-[var(--stamp-red)] focus-visible:bg-[var(--paper-100)] focus-visible:ring-2 focus-visible:ring-[var(--stamp-red)]/15'
+                  ].join(' ')}
+                >
+                  <option value="">Automático (IA decide pelo conteúdo)</option>
+                  {styleOptions.map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {s.label}
+                    </option>
+                  ))}
+                </select>
+                <p className="font-sans text-[11px] leading-relaxed text-[var(--ink-400)]">
+                  Fica salvo como estilo padrão desta novel — vem pré-selecionado na próxima
+                  captura. Cure a lista em Configurações.
+                </p>
+              </div>
+            )}
           </div>
 
           {error && (
