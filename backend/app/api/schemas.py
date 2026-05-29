@@ -29,6 +29,11 @@ class DownloadRequest(BaseModel):
     volume_title: str | None = None
     # Gerar capa custom via IA (Gemini Flash Image) baseado no conteudo do range.
     ai_cover: bool = False
+    # Quando setado, o volume com este id e removido (registro + .epub) DEPOIS que
+    # o novo .epub for gerado com sucesso. Usado pra "traduzir no lugar": o volume
+    # original (sem traducao) some quando a versao traduzida nasce, evitando
+    # duplicata na biblioteca. None = nao substitui nada.
+    replace_volume_id: int | None = None
 
 
 class TranslationFailure(BaseModel):

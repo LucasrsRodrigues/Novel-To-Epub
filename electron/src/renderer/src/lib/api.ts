@@ -50,6 +50,9 @@ export interface DownloadRequest {
   translate_to?: string | null
   volume_title?: string | null
   ai_cover?: boolean
+  // Quando setado, o volume com este id é removido (registro + .epub) assim que
+  // o novo .epub nascer ok. Usado p/ "traduzir no lugar" (substitui o original).
+  replace_volume_id?: number | null
 }
 
 export interface SiteInfo {
@@ -281,6 +284,8 @@ export const api = {
     http<{ status: string; to: string }>(`/api/volumes/${id}/kindle`, { method: 'POST' }),
   regenerateVolumeCover: (id: number) =>
     http<JobStatus>(`/api/volumes/${id}/regenerate-cover`, { method: 'POST' }),
+  deleteVolume: (id: number) =>
+    http<void>(`/api/volumes/${id}`, { method: 'DELETE' }),
   rebuildVolume: (id: number) =>
     http<VolumeOut>(`/api/volumes/${id}/rebuild`, { method: 'POST' }),
   listChapters: (novelId: number, opts: { language?: string; start?: number; end?: number } = {}) => {

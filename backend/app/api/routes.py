@@ -214,6 +214,18 @@ def list_volumes(novel_id: int) -> list[dict]:
     return VolumeStore().list_for_novel(novel_id)
 
 
+@router.delete("/volumes/{volume_id}", status_code=204)
+def delete_volume(volume_id: int) -> None:
+    """Remove um volume gerado: apaga o registro e o .epub do disco.
+
+    Não toca no cache de capítulos/tradução/glossário/capa — só o volume.
+    Usado pra limpar duplicatas (ex: a versão original sobrando ao lado da
+    traduzida, ou um volume com tradução incompleta que o usuário descartou).
+    """
+    if not VolumeStore().delete(volume_id, delete_file=True):
+        raise HTTPException(status_code=404, detail="volume nao encontrado")
+
+
 @router.get("/volumes/{volume_id}/file")
 def download_volume_file(volume_id: int) -> FileResponse:
     vol = VolumeStore().get(volume_id)
@@ -286,16 +298,18 @@ async def rebuild_volume(volume_id: int) -> dict:
 def regenerate_volume_cover(
     volume_id: int, jobs: JobManager = Depends(get_jobs)
 ) -> JobStatus:
-    """Apaga capa cacheada do volume e re-enqueue. Mesmo cache de capítulos/
-    traducao, só a capa MISS → regenera com tipografia atualizada."""
+    """Gera (ou regera) a capa por IA do volume e re-enqueue.
+
+    Funciona mesmo pra volume que foi baixado SEM capa IA: o re-enqueue força
+    ``ai_cover=True``, então a capa nasce agora. Cache de capítulos/tradução é
+    reusado e o ``output_path`` é o mesmo (mesmo volume_title + idioma) → o
+    upsert atualiza o MESMO registro (vira ai_cover=True), sem criar duplicata.
+    """
     vol = VolumeStore().get(volume_id)
     if vol is None:
         raise HTTPException(status_code=404, detail="volume nao encontrado")
-    if not vol["ai_cover"]:
-        raise HTTPException(
-            status_code=400,
-            detail="volume nao usa capa por IA — nada a regerar",
-        )
+    # Se ja tinha capa IA cacheada, apaga pra forçar MISS → regenera. Se nao
+    # tinha (primeira capa), o delete e no-op.
     CoverCache().delete(vol["novel_id"], vol["volume_title"])
     new_job = jobs.enqueue(
         DownloadRequest(
@@ -560,16 +574,13 @@ def update_settings(body: SettingsUpdate) -> SettingsOut:
 def regenerate_cover(
     job_id: str, jobs: JobManager = Depends(get_jobs)
 ) -> JobStatus:
-    """Apaga a capa cacheada e re-enqueue o mesmo job — cache de capitulo +
-    traducao pula, capa MISS → re-gera com tipografia atualizada."""
+    """Gera (ou regera) a capa por IA e re-enqueue o mesmo job.
+
+    Funciona mesmo pra job baixado SEM capa IA: o re-enqueue força ai_cover=True.
+    Cache de capítulo + tradução é reusado; só a capa nasce/regenera."""
     job = jobs.get(job_id)
     if job is None:
         raise HTTPException(status_code=404, detail="job nao encontrado")
-    if not job.ai_cover:
-        raise HTTPException(
-            status_code=400,
-            detail="job nao usa capa por IA — nao ha o que regerar",
-        )
 
     # Resolve novel_id pela URL do job (que e a source_url da novel cadastrada).
     with get_session() as s:

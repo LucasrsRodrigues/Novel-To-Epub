@@ -7,10 +7,12 @@ import {
   FileEdit,
   Hammer,
   ImageIcon,
+  Languages,
   Loader2,
   Plus,
   RefreshCw,
-  Send
+  Send,
+  Trash2
 } from 'lucide-react'
 import {
   api,
@@ -42,6 +44,8 @@ export function NovelDetail({
   const [persistedVolumes, setPersistedVolumes] = useState<VolumeOut[]>([])
   const [showFullDesc, setShowFullDesc] = useState(false)
   const [editorVolume, setEditorVolume] = useState<VolumeOut | null>(null)
+  // Idioma-alvo configurado — usado pelo botão "Traduzir" do volume.
+  const [targetLang, setTargetLang] = useState('pt-BR')
   const { jobs } = useJobs()
 
   useEffect(() => {
@@ -57,6 +61,10 @@ export function NovelDetail({
       .getNovelVolumes(novelId)
       .then(setPersistedVolumes)
       .catch(() => setPersistedVolumes([]))
+    api
+      .getSettings()
+      .then((s) => setTargetLang(s.target_language || 'pt-BR'))
+      .catch(() => {})
   }, [novelId])
 
   // Re-busca volumes quando um job da mesma novel termina (acabou de gerar
@@ -250,10 +258,14 @@ export function NovelDetail({
                   key={`p-${v.vol.id}`}
                   vol={v.vol}
                   novelId={novelId}
+                  targetLang={targetLang}
                   onVolumeUpdated={(updated) =>
                     setPersistedVolumes((prev) =>
                       prev.map((x) => (x.id === updated.id ? updated : x))
                     )
+                  }
+                  onVolumeDeleted={(id) =>
+                    setPersistedVolumes((prev) => prev.filter((x) => x.id !== id))
                   }
                   onOpenEditor={setEditorVolume}
                 />
@@ -337,22 +349,29 @@ function StatTile({
 }
 
 function PersistedVolumeRow({
-  vol, novelId, onVolumeUpdated, onOpenEditor
+  vol, novelId, targetLang, onVolumeUpdated, onVolumeDeleted, onOpenEditor
 }: {
   vol: VolumeOut
   novelId: number
+  targetLang: string
   onVolumeUpdated: (v: VolumeOut) => void
+  onVolumeDeleted: (id: number) => void
   onOpenEditor: (vol: VolumeOut) => void
 }): React.JSX.Element {
   const [sending, setSending] = useState(false)
   const [regenerating, setRegenerating] = useState(false)
   const [retrying, setRetrying] = useState(false)
   const [rebuilding, setRebuilding] = useState(false)
+  const [translatingNow, setTranslatingNow] = useState(false)
+  const [confirmDelete, setConfirmDelete] = useState(false)
+  const [deleting, setDeleting] = useState(false)
   const [sendMsg, setSendMsg] = useState<{ ok: boolean; text: string } | null>(null)
   void novelId  // referenced no botão Editor via onOpenEditor; mantido pra futura expansão
   // Tradução incompleta = ainda tem caps em EN. Volume nao deve ser tratado
   // como "pronto" — esconde .epub/Kindle/Regerar capa e mostra Retraduzir.
   const incompleteTranslation = !!vol.translate_to && vol.translation_failed > 0
+  // Volume sem tradução nenhuma → oferece "Traduzir" (substitui no lugar).
+  const untranslated = !vol.translate_to
 
   async function sendKindle(): Promise<void> {
     setSending(true)
@@ -372,11 +391,58 @@ function PersistedVolumeRow({
     setSendMsg(null)
     try {
       await api.regenerateVolumeCover(vol.id)
-      setSendMsg({ ok: true, text: 'novo job criado — capa será regerada (~R$0,20)' })
+      setSendMsg({
+        ok: true,
+        text: vol.ai_cover
+          ? 'novo job criado — capa será regerada (~R$0,20)'
+          : 'novo job criado — capa por IA será gerada (~R$0,20)'
+      })
     } catch (err) {
       setSendMsg({ ok: false, text: err instanceof Error ? err.message : String(err) })
     } finally {
       setRegenerating(false)
+    }
+  }
+
+  // Item 1: traduz um volume que foi baixado sem tradução. Re-usa os capítulos
+  // já em cache (só roda o tradutor), e substitui o volume original no lugar
+  // (replace_volume_id) pra não duplicar a edição na biblioteca.
+  async function translateVolume(): Promise<void> {
+    setTranslatingNow(true)
+    setSendMsg(null)
+    try {
+      await api.createDownload({
+        url: vol.source_url,
+        start: vol.start,
+        end: vol.end,
+        with_cover: vol.with_cover,
+        translate_to: targetLang,
+        volume_title: vol.volume_title,
+        ai_cover: vol.ai_cover,
+        replace_volume_id: vol.id
+      })
+      setSendMsg({
+        ok: true,
+        text: `tradução iniciada (${targetLang}) — acompanhe em Downloads; substitui esta edição ao terminar`
+      })
+    } catch (err) {
+      setSendMsg({ ok: false, text: err instanceof Error ? err.message : String(err) })
+    } finally {
+      setTranslatingNow(false)
+    }
+  }
+
+  // Item 3: remove o volume (registro + .epub). Usado pra limpar duplicatas.
+  async function removeVolume(): Promise<void> {
+    setDeleting(true)
+    setSendMsg(null)
+    try {
+      await api.deleteVolume(vol.id)
+      onVolumeDeleted(vol.id)
+    } catch (err) {
+      setSendMsg({ ok: false, text: err instanceof Error ? err.message : String(err) })
+      setDeleting(false)
+      setConfirmDelete(false)
     }
   }
 
@@ -478,26 +544,66 @@ function PersistedVolumeRow({
             )}
             Recompilar
           </Button>
-          {vol.ai_cover && (
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={regenerateCover}
-              disabled={regenerating}
-            >
-              {regenerating ? (
+          {untranslated && (
+            <Button size="sm" onClick={translateVolume} disabled={translatingNow}>
+              {translatingNow ? (
                 <Loader2 className="size-3.5 animate-spin" />
               ) : (
-                <ImageIcon className="size-3.5" />
+                <Languages className="size-3.5" />
               )}
-              Regerar capa
+              Traduzir
             </Button>
           )}
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={regenerateCover}
+            disabled={regenerating}
+            title={
+              vol.ai_cover
+                ? 'Gera uma nova capa por IA (~R$0,20)'
+                : 'Gera uma capa por IA pra este volume (~R$0,20)'
+            }
+          >
+            {regenerating ? (
+              <Loader2 className="size-3.5 animate-spin" />
+            ) : (
+              <ImageIcon className="size-3.5" />
+            )}
+            {vol.ai_cover ? 'Regerar capa' : 'Gerar capa'}
+          </Button>
           <Button variant="outline" size="sm" onClick={sendKindle} disabled={sending}>
             {sending ? <Loader2 className="size-3.5 animate-spin" /> : <Send className="size-3.5" />}
             Kindle
           </Button>
         </>
+      )}
+      {confirmDelete ? (
+        <span className="flex items-center gap-1.5">
+          <span className="font-sans text-[11px] text-[var(--ink-500)]">Excluir volume?</span>
+          <Button variant="outline" size="sm" onClick={removeVolume} disabled={deleting}>
+            {deleting ? <Loader2 className="size-3.5 animate-spin" /> : <Trash2 className="size-3.5" />}
+            Sim, excluir
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => setConfirmDelete(false)}
+            disabled={deleting}
+          >
+            Cancelar
+          </Button>
+        </span>
+      ) : (
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={() => setConfirmDelete(true)}
+          title="Remove este volume (registro + arquivo .epub). Não apaga capítulos do cache."
+          className="text-[var(--ink-stamp)]"
+        >
+          <Trash2 className="size-3.5" /> Excluir
+        </Button>
       )}
       {sendMsg && (
         <span

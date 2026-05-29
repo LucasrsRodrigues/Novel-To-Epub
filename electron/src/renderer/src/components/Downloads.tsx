@@ -183,7 +183,9 @@ function JobCard({
   const [sendMsg, setSendMsg] = useState<{ ok: boolean; text: string } | null>(null)
   const pct = job.total ? Math.round((job.done / job.total) * 100) : 0
   const hasTranslationFailures = job.status === 'done' && job.translation_failed > 0
-  const canRegenerateCover = job.status === 'done' && job.ai_cover
+  // Capa pode ser gerada pra qualquer download concluído — mesmo que o usuário
+  // não tenha marcado capa IA no começo (item: "gerar capa depois").
+  const canRegenerateCover = job.status === 'done' && !!job.output_path
   const canCancel = job.status === 'queued' || job.status === 'running'
   // Durante 'meta' o `total` ainda e 0 — barra rainbow indeterminada ajuda o
   // user a ver que esta progredindo (especialmente pra adapters lentos como
@@ -215,7 +217,12 @@ function JobCard({
       } else {
         await api.regenerateCover(job.id)
       }
-      setSendMsg({ ok: true, text: 'novo job criado — capa será regerada (~R$0,20)' })
+      setSendMsg({
+        ok: true,
+        text: job.ai_cover
+          ? 'novo job criado — capa será regerada (~R$0,20)'
+          : 'novo job criado — capa por IA será gerada (~R$0,20)'
+      })
     } catch (err) {
       setSendMsg({ ok: false, text: err instanceof Error ? err.message : String(err) })
     } finally {
@@ -397,7 +404,7 @@ function JobCard({
                   ) : (
                     <ImageIcon className="size-3.5" />
                   )}
-                  Regerar capa
+                  {job.ai_cover ? 'Regerar capa' : 'Gerar capa'}
                 </Button>
               )}
               <Button

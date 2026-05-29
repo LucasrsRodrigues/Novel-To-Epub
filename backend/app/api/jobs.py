@@ -14,6 +14,7 @@ from datetime import datetime, timezone
 
 from app.api.hub import ConnectionHub
 from app.api.schemas import DownloadRequest, JobStatus, TranslationFailure
+from app.db.volume_store import VolumeStore
 from app.logging_conf import get_logger
 from app.models import NovelMeta
 from app.orchestrator import download_to_epub
@@ -35,6 +36,9 @@ class Job:
     translate_to: str | None = None
     volume_title: str | None = None
     ai_cover: bool = False
+    # Volume a remover (registro + .epub) depois que este job gerar o novo .epub
+    # com sucesso. Usado pra "traduzir no lugar" (substitui o original sem traducao).
+    replace_volume_id: int | None = None
     status: str = "queued"  # queued | running | done | error | cancelled
     stage: str = "idle"      # idle | meta | download | translate | cover
     translation_failed: int = 0  # caps que ficaram em EN por falha
@@ -122,6 +126,7 @@ class JobManager:
             translate_to=req.translate_to,
             volume_title=req.volume_title,
             ai_cover=req.ai_cover,
+            replace_volume_id=req.replace_volume_id,
         )
         self._jobs[job.id] = job
         self._queue.put_nowait(job.id)
@@ -252,6 +257,26 @@ class JobManager:
             on_complete=on_complete,
         )
         job.output_path = str(path)
+        # Traduzir no lugar (item 1): apaga o volume antigo (sem traducao) so
+        # DEPOIS que o novo nasceu ok. So apaga se o novo realmente foi persistido
+        # (volume_id setado por on_complete) e e outro registro — o sufixo de
+        # idioma garante output_path diferente, entao nunca apaga a si mesmo.
+        if (
+            job.replace_volume_id is not None
+            and job.volume_id
+            and job.replace_volume_id != job.volume_id
+        ):
+            try:
+                VolumeStore().delete(job.replace_volume_id, delete_file=True)
+                log.info(
+                    "volume_replaced", old=job.replace_volume_id, new=job.volume_id
+                )
+            except Exception as exc:  # nao derruba o job por causa da limpeza
+                log.warning(
+                    "volume_replace_failed",
+                    id=job.replace_volume_id,
+                    error=str(exc),
+                )
         job.status = "done"
         self._touch(job)
         self._publish("done", job)

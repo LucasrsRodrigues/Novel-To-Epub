@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from sqlalchemy import select
 
 from app.db import models as orm
@@ -67,6 +69,27 @@ class VolumeStore:
         with get_session() as s:
             row = s.get(orm.GeneratedVolume, volume_id)
             return _to_dict(row) if row else None
+
+    def delete(self, volume_id: int, *, delete_file: bool = True) -> bool:
+        """Remove o registro do volume e, opcionalmente, o .epub do disco.
+
+        Devolve True se removeu, False se o volume nao existia. A remocao do
+        arquivo e best-effort (nao falha se o .epub ja sumiu). Cache de
+        capitulos/traducao/capa NAO e tocado — so o volume gerado.
+        """
+        with get_session() as s:
+            row = s.get(orm.GeneratedVolume, volume_id)
+            if row is None:
+                return False
+            path = row.output_path
+            s.delete(row)
+            s.commit()
+        if delete_file and path:
+            try:
+                Path(path).unlink(missing_ok=True)
+            except OSError:
+                pass  # arquivo travado/permissao — registro ja foi embora
+        return True
 
 
 def _to_dict(row: orm.GeneratedVolume) -> dict:
