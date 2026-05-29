@@ -37,6 +37,7 @@ export interface JobStatus {
   error: string | null
   translation_failed: number // caps que ficaram em EN (falha)
   translation_failures: TranslationFailure[] // detalhe por cap (preenchido qdo job termina)
+  cover_error: string | null // motivo da falha de capa por IA (None = ok/não pedida)
   volume_id: number | null // id do volume persistido (None enquanto job nao terminou)
   created_at: string
   updated_at: string

@@ -56,8 +56,7 @@ function statusLabel(job: JobStatus): string {
     case 'done': {
       const parts: string[] = ['concluído']
       if (job.translate_to) parts.push(job.translate_to)
-      if (job.translation_failed > 0)
-        parts.push(`${job.translation_failed} caps em EN (falha)`)
+      if (job.translation_failed > 0) parts.push(`${job.translation_failed} caps em EN (falha)`)
       return parts.join(' · ')
     }
     case 'error':
@@ -71,7 +70,7 @@ function statusLabel(job: JobStatus): string {
  *  por keywords na mensagem da exception do Gemini (finish_reason/block_reason). */
 function classifyFailure(reason: string): { kind: string; hint: string } {
   const r = reason.toLowerCase()
-  if (r.includes('safety') || r.includes('block_reason') && !r.includes('block_reason=none')) {
+  if (r.includes('safety') || (r.includes('block_reason') && !r.includes('block_reason=none'))) {
     return {
       kind: 'Bloqueado por filtro de conteúdo (hard guardrail)',
       hint: 'Os safety filters configuráveis já estão em BLOCK_NONE — o que sobrou é guardrail interno do Gemini (raro). Costuma envolver menor de idade em contexto sexual. Tente outro modelo (Pro) ou traduza esse cap manualmente.'
@@ -83,19 +82,34 @@ function classifyFailure(reason: string): { kind: string; hint: string } {
       hint: 'O JSON foi cortado no meio. Continuar pode funcionar se for transiente; senão, capítulo precisa de divisão.'
     }
   }
-  if (r.includes('unavailable') || r.includes('503') || r.includes('high demand') || r.includes('overload')) {
+  if (
+    r.includes('unavailable') ||
+    r.includes('503') ||
+    r.includes('high demand') ||
+    r.includes('overload')
+  ) {
     return {
       kind: 'Gemini sobrecarregado (503 UNAVAILABLE)',
       hint: 'API do Gemini com pico de demanda. O retry automático já tentou 5x com backoff exponencial (até 60s entre tentativas). Aguarde uns minutos e clique Continuar tradução.'
     }
   }
-  if (r.includes('rate') || r.includes('quota') || r.includes('429') || r.includes('resource_exhausted') || r.includes('tokens per minute')) {
+  if (
+    r.includes('rate') ||
+    r.includes('quota') ||
+    r.includes('429') ||
+    r.includes('resource_exhausted') ||
+    r.includes('tokens per minute')
+  ) {
     return {
       kind: 'Rate limit / quota (429)',
       hint: 'Provider bateu limite por minuto/dia. Cascade respeita Retry-After do header — clique Continuar tradução em alguns segundos.'
     }
   }
-  if (r.includes('cooldown') || r.includes('todos os providers em cooldown') || r.includes('próximo provider disponível')) {
+  if (
+    r.includes('cooldown') ||
+    r.includes('todos os providers em cooldown') ||
+    r.includes('próximo provider disponível')
+  ) {
     // Tenta extrair os "~Ns" da mensagem
     const m = r.match(/~?(\d+)s/)
     const eta = m ? `${m[1]}s` : 'menos de 90s'
@@ -297,7 +311,9 @@ function JobCard({
       <div className="space-y-3.5">
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0 flex-1">
-            <div className="folio mb-1 text-[var(--ink-400)]">№ {String(index).padStart(3, '0')}</div>
+            <div className="folio mb-1 text-[var(--ink-400)]">
+              № {String(index).padStart(3, '0')}
+            </div>
             <h3 className="font-display truncate text-lg leading-tight font-medium tracking-tight">
               {job.volume_title ?? job.title ?? job.url}
             </h3>
@@ -312,15 +328,14 @@ function JobCard({
             </p>
           </div>
           <span className="font-display text-[28px] leading-none italic text-[var(--ink-400)]">
-            {pct}<span className="text-sm">%</span>
+            {pct}
+            <span className="text-sm">%</span>
           </span>
         </div>
 
         <Progress
           value={indeterminate ? 100 : pct}
-          rainbow={
-            indeterminate || (job.translate_to !== null && job.stage === 'translate')
-          }
+          rainbow={indeterminate || (job.translate_to !== null && job.stage === 'translate')}
         />
 
         <div className="font-sans flex items-center justify-between text-[12px] text-[var(--ink-500)]">
@@ -332,12 +347,7 @@ function JobCard({
 
         {canCancel && (
           <div className="flex items-center gap-2 pt-1">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={cancelJob}
-              disabled={cancelling}
-            >
+            <Button variant="outline" size="sm" onClick={cancelJob} disabled={cancelling}>
               {cancelling ? (
                 <Loader2 className="size-3.5 animate-spin" />
               ) : (
@@ -346,9 +356,7 @@ function JobCard({
               Cancelar
             </Button>
             {sendMsg && !sendMsg.ok && (
-              <span className="font-sans text-[12px] text-[var(--ink-stamp)]">
-                {sendMsg.text}
-              </span>
+              <span className="font-sans text-[12px] text-[var(--ink-stamp)]">{sendMsg.text}</span>
             )}
           </div>
         )}
@@ -366,14 +374,44 @@ function JobCard({
                 <div className="flex items-center gap-2.5">
                   <CircleAlert className="size-4 shrink-0 text-[var(--ink-stamp)]" />
                   <span className="font-sans flex-1 text-[12px] leading-snug text-[var(--ink-700)]">
-                    <strong className="font-semibold">{job.translation_failed} capítulo
-                    {job.translation_failed === 1 ? '' : 's'}</strong> ficaram em inglês (falha na
-                    tradução). Os já traduzidos estão em cache — continuar não gasta tokens neles.
+                    <strong className="font-semibold">
+                      {job.translation_failed} capítulo
+                      {job.translation_failed === 1 ? '' : 's'}
+                    </strong>{' '}
+                    ficaram em inglês (falha na tradução). Os já traduzidos estão em cache —
+                    continuar não gasta tokens neles.
                   </span>
                 </div>
                 {job.translation_failures && job.translation_failures.length > 0 && (
                   <FailureDetails failures={job.translation_failures} />
                 )}
+              </div>
+            )}
+            {job.cover_error && (
+              <div
+                className="mt-1 rounded-lg border border-[var(--ink-stamp)]/40 px-3 py-2"
+                style={{ backgroundColor: 'rgba(149,40,31,0.08)' }}
+              >
+                <div className="flex items-start gap-2.5">
+                  <ImageIcon className="size-4 shrink-0 text-[var(--ink-stamp)]" />
+                  <div className="flex-1">
+                    <span className="font-sans text-[12px] leading-snug text-[var(--ink-700)]">
+                      <strong className="font-semibold">Capa por IA falhou</strong> — o EPUB saiu
+                      com a capa raspada. <strong>{classifyFailure(job.cover_error).kind}</strong>.
+                    </span>
+                    <p className="font-sans mt-0.5 text-[11px] leading-snug text-[var(--ink-500)]">
+                      {classifyFailure(job.cover_error).hint} Depois é só clicar “Regerar capa”.
+                    </p>
+                    <details className="mt-1">
+                      <summary className="font-sans cursor-pointer text-[11px] text-[var(--ink-400)] hover:text-[var(--ink-500)]">
+                        mensagem crua
+                      </summary>
+                      <pre className="font-mono mt-1 max-h-32 overflow-auto whitespace-pre-wrap break-words text-[11px] leading-snug text-[var(--ink-700)]">
+                        {job.cover_error}
+                      </pre>
+                    </details>
+                  </div>
+                </div>
               </div>
             )}
             <div className="flex flex-wrap items-center gap-2 pt-1">

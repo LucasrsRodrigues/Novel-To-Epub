@@ -189,8 +189,10 @@ async def download_to_epub(
             )
 
     # ---- Fase 2.5: Capa por IA (opcional) — sobrescreve a raspada se OK ----
+    cover_error: str | None = None
     if ai_cover:
         from app.image_gen.cover_generator import generate_or_cache_cover, CoverGenError
+
         from app.translation.glossary import GlossaryStore
 
         if progress:
@@ -209,9 +211,15 @@ async def download_to_epub(
             if progress:
                 progress("cover", 1, 1, "capa pronta", False)
         except CoverGenError as exc:
-            log.warning("ai_cover_skipped", reason=str(exc))
+            cover_error = str(exc)
+            log.warning("ai_cover_skipped", reason=cover_error)
         except Exception as exc:
-            log.warning("ai_cover_failed", error=str(exc))
+            cover_error = str(exc)
+            log.warning("ai_cover_failed", error=cover_error)
+        # Falha de capa NAO derruba o job (o EPUB sai com a capa raspada), mas
+        # agora o motivo e visivel na UI em vez de sumir num warning de log.
+        if cover_error and progress:
+            progress("cover", 1, 1, f"capa falhou: {cover_error[:120]}", False)
 
     # ---- Fase 3: EPUB ----
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -269,6 +277,9 @@ async def download_to_epub(
             # Mantido p/ retrocompat (era list[int]); ninguem mais le, mas sem
             # custo manter.
             "translation_failed_chapters": [f["chapter"] for f in translation_failures],
+            # Motivo da falha de capa por IA (rate-limit, sem key, bloqueio...),
+            # None se a capa saiu ok ou nao foi pedida. UI mostra pro usuario.
+            "cover_error": cover_error,
             # Id no SQLite — UI usa pra endpoints baseados em volume (mais
             # robusto que job_id que mora so em memoria).
             "volume_id": volume_id,

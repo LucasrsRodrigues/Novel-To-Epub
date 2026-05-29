@@ -212,6 +212,9 @@ class JobStatus(BaseModel):
     # Detalhe por capitulo que falhou (mesmo length que translation_failed).
     # UI mostra num expand pra o usuario entender por que cada cap ficou em EN.
     translation_failures: list[TranslationFailure] = []
+    # Motivo da falha de capa por IA (rate-limit, sem key, bloqueio). None = ok
+    # ou nao pedida. UI mostra pro usuario em vez de falhar em silencio.
+    cover_error: str | None = None
     # Id no SQLite do volume gerado (None enquanto job nao terminou). UI usa
     # pra chamar endpoints persistentes (sobrevive a restart do backend).
     volume_id: int | None = None

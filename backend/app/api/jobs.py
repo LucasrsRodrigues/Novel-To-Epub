@@ -46,6 +46,9 @@ class Job:
     # Detalhe por cap que falhou: TranslationFailure(chapter, title, reason).
     # Preenchido por on_complete; vazio enquanto o job nao terminou.
     translation_failures: list[TranslationFailure] = field(default_factory=list)
+    # Motivo da falha de capa por IA (rate-limit, sem key...). None = capa ok ou
+    # nao pedida. Preenchido por on_complete; UI mostra pro usuario.
+    cover_error: str | None = None
     # Id do GeneratedVolume persistido em SQLite (preenchido por on_complete).
     # UI usa pra chamar endpoints baseados em volume_id, que sobrevivem ao
     # restart do backend (jobs sao in-memory; volumes nao).
@@ -79,6 +82,7 @@ class Job:
             error=self.error,
             translation_failed=self.translation_failed,
             translation_failures=self.translation_failures,
+            cover_error=self.cover_error,
             volume_id=self.volume_id,
             created_at=self.created_at,
             updated_at=self.updated_at,
@@ -242,6 +246,7 @@ class JobManager:
                 TranslationFailure(**f) for f in raw
                 if isinstance(f, dict)
             ]
+            job.cover_error = stats.get("cover_error") or None
             vid = stats.get("volume_id")
             if isinstance(vid, int):
                 job.volume_id = vid
