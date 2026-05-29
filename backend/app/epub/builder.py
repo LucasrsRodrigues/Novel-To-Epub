@@ -40,11 +40,35 @@ def clean_chapter_title(title: str) -> str:
     cleaned = _CHAPTER_PREFIX_RE.sub("", title).strip()
     return cleaned or title.strip()
 
+
+# Captura o numero do capitulo do prefixo (ex: "Capítulo 24 ..." -> 24). Usado pra
+# montar o cabecalho da pagina ("Capítulo 24" em cima + nome embaixo).
+_CHAPTER_NUM_RE = re.compile(r"^\s*(?:cap[íi]tulo|chapter|cap|ch)\.?\s*(-?\d+)", re.IGNORECASE)
+
+
+def chapter_number(title: str) -> int | None:
+    m = _CHAPTER_NUM_RE.match(title)
+    return int(m.group(1)) if m else None
+
+
+def _chapter_header(raw_title: str, language: str) -> str:
+    """Cabecalho da pagina do capitulo: 'Capítulo N' (se houver numero) + nome.
+    Sem numero parseavel → so o nome. Titulo so-prefixo → so o rotulo."""
+    clean = clean_chapter_title(raw_title)
+    num = chapter_number(raw_title)
+    label = "Capítulo" if (language or "").lower().startswith("pt") else "Chapter"
+    # Tem numero E um nome separado do prefixo → eyebrow + titulo.
+    if num is not None and clean != raw_title.strip():
+        return f'<p class="chapter-eyebrow">{label} {num}</p><h2>{escape(clean)}</h2>'
+    return f"<h2>{escape(clean)}</h2>"
+
 log = get_logger("epub")
 
 _CSS = """\
 body { font-family: serif; line-height: 1.6; margin: 0 5%; }
-h2 { text-align: left; margin: 1.2em 0 0.8em; font-size: 1.2em; }
+h2 { text-align: left; margin: 0.2em 0 0.8em; font-size: 1.3em; }
+.chapter-eyebrow { text-align: left; text-transform: uppercase; letter-spacing: 0.12em;
+  font-size: 0.78em; color: #888; margin: 1.4em 0 0; text-indent: 0; }
 p { margin: 0 0 0.8em; text-indent: 1.5em; }
 img.cover { max-width: 100%; height: auto; }
 nav.toc h2 { text-align: center; margin: 2em 0 1.5em; font-size: 1.4em; }
@@ -55,7 +79,7 @@ nav.toc li a .num { color: #888; font-variant-numeric: tabular-nums; flex-shrink
 nav.toc li a .title { flex: 1; }
 """
 
-_CHAPTER = '<html xmlns="http://www.w3.org/1999/xhtml"><body><h2>{title}</h2>\n{body}</body></html>'
+_CHAPTER = '<html xmlns="http://www.w3.org/1999/xhtml"><body>{header}\n{body}</body></html>'
 _COVER = (
     '<html xmlns="http://www.w3.org/1999/xhtml"><body>'
     '<div style="text-align:center;"><img class="cover" src="{filename}" alt="Cover"/></div>'
@@ -156,7 +180,9 @@ def build_epub(
             file_name=f"chap_{ch.index:05d}.xhtml",
             lang=language,
         )
-        item.content = _CHAPTER.format(title=escape(ctitle), body=ch.html)
+        item.content = _CHAPTER.format(
+            header=_chapter_header(ch.title, language), body=ch.html
+        )
         item.add_item(css)
         book.add_item(item)
         epub_chapters.append(item)
