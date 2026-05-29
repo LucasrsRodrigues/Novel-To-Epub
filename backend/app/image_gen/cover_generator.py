@@ -382,19 +382,29 @@ def _build_image_prompt(
     style_override: str | None = None,
     series_block: str | None = None,
 ) -> str:
-    title_clause = (
-        f"for the volume \"{volume_title}\" of the web novel series \"{novel_meta.title}\""
-        if volume_title
-        else f"for the web novel \"{novel_meta.title}\""
-    )
+    # IMPORTANTE: NAO passamos o titulo/nome da serie pro prompt. Antes mandavamos
+    # `for the volume "Volume 2" of "Supreme Magus"` e o modelo desenhava essas
+    # strings (texto-fantasma no topo) por mais que pedissemos "no text". O titulo
+    # e a serie entram SO no overlay (Pillow). Tambem evitamos a palavra "book
+    # cover", que prima o modelo a cravar um titulo. (novel_meta/volume_title
+    # ficam na assinatura por compatibilidade, mas NAO entram no prompt.)
     # Coesao de serie (paleta + luz) — a cena varia, paleta/luz seguem a 1a capa.
     series_clause = _series_consistency_block(series_block) if series_block else ""
+
+    no_text_block = """ABSOLUTELY NO TEXT — THIS IS CRITICAL:
+- Do NOT render ANY letters, words, numbers, a title, a volume number, the series
+  name, captions, signatures, watermarks, logos, frames, borders, or UI elements.
+- This is pure artwork only — the title is added separately afterwards. Any text
+  you draw will collide with it and look broken. Leave the top and bottom margins
+  free of any lettering.
+- If the scene would naturally include text (book spines, signs, banners, runes
+  as letters), leave those surfaces blank or use abstract non-letter marks.
+- Output a PURE, 100% TEXTLESS illustration."""
 
     if style_override:
         # Estilo TRAVADO: ele tem que liderar e dominar — senao o Gemini, pra cenas
         # ricas (personagem+cenario), ignora a tecnica e cai num realismo generico.
-        # Por isso o estilo vem PRIMEIRO, enfatico, e a cena e renderizada NELE.
-        return f"""A book cover illustration {title_clause}.
+        return f"""A dramatic vertical 2:3 portrait illustration (key art for a fantasy story).
 
 ART STYLE — THE SINGLE MOST IMPORTANT REQUIREMENT, it must define the ENTIRE image:
 {style_override}
@@ -405,44 +415,30 @@ including the character/subject, must unmistakably read as this style.
 SCENE TO DEPICT (drawn fully in the art style above): {brief.scene}{series_clause}
 
 COMPOSITION:
-- Portrait orientation, 2:3 aspect ratio (vertical book cover).
+- Portrait orientation, 2:3 aspect ratio (vertical key art).
 - One strong focal subject. Rule of thirds composition.
 - Rich detail without clutter.
 - Keep the lower third calmer and less busy (no faces or critical detail at the
-  very bottom) — a title bar is added there afterwards.
+  very bottom) — a title bar is composited there afterwards.
 
-ABSOLUTELY NO TEXT — THIS IS CRITICAL:
-- Do NOT render any letters, words, numbers, titles, the series name, captions,
-  signatures, watermarks, logos, frames, borders, or UI elements.
-- The title and series name are composited separately AFTER generation — if you
-  draw any text it will collide with it and look broken.
-- If the scene would naturally include text (book spines, signs, banners, runes
-  as letters), leave those surfaces blank or use abstract non-letter marks.
-- Output a PURE, 100% TEXTLESS illustration."""
+{no_text_block}"""
 
     # Modo automatico (sem estilo travado): a IA decide a estetica pela `style` do brief.
-    return f"""A dramatic book cover illustration {title_clause}.
+    return f"""A dramatic vertical 2:3 portrait illustration (key art for a fantasy story).
 
 SCENE TO DEPICT: {brief.scene}
 
 ART DIRECTION: {brief.style}{series_clause}
 
 COMPOSITION:
-- Portrait orientation, 2:3 aspect ratio (vertical book cover).
+- Portrait orientation, 2:3 aspect ratio (vertical key art).
 - One strong focal subject. Rule of thirds composition.
 - Painterly digital illustration. Cinematic, atmospheric lighting.
 - Rich detail without clutter.
 - Keep the lower third calmer and less busy (no faces or critical detail at the
-  very bottom) — a title bar is added there afterwards.
+  very bottom) — a title bar is composited there afterwards.
 
-ABSOLUTELY NO TEXT — THIS IS CRITICAL:
-- Do NOT render any letters, words, numbers, titles, the series name, captions,
-  signatures, watermarks, logos, frames, borders, or UI elements.
-- The title and series name are composited separately AFTER generation — if you
-  draw any text it will collide with it and look broken.
-- If the scene would naturally include text (book spines, signs, banners, runes
-  as letters), leave those surfaces blank or use abstract non-letter marks.
-- Output a PURE, 100% TEXTLESS illustration."""
+{no_text_block}"""
 
 
 async def _build_visual_brief(
