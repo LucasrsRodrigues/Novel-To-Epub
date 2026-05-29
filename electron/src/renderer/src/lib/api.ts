@@ -328,6 +328,11 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ cover_style: coverStyle ?? null })
     }),
+  regenerateAllCovers: (novelId: number, coverStyle?: string | null) =>
+    http<JobStatus[]>(`/api/library/${novelId}/regenerate-all-covers`, {
+      method: 'POST',
+      body: JSON.stringify({ cover_style: coverStyle ?? null })
+    }),
   deleteVolume: (id: number) => http<void>(`/api/volumes/${id}`, { method: 'DELETE' }),
   rebuildVolume: (id: number) => http<VolumeOut>(`/api/volumes/${id}/rebuild`, { method: 'POST' }),
   listChapters: (

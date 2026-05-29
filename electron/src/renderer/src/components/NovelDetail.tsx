@@ -30,7 +30,7 @@ import {
   type VolumeOut
 } from '@renderer/lib/api'
 import { useJobs } from '@renderer/context/JobsContext'
-import { COVER_STYLES } from '@renderer/lib/coverStyles'
+import { COVER_STYLES, COVER_STYLE_LABELS } from '@renderer/lib/coverStyles'
 import { Button } from '@renderer/components/ui/button'
 import { Folio } from '@renderer/components/decorative/Folio'
 import { Ribbon } from '@renderer/components/decorative/Ribbon'
@@ -304,7 +304,11 @@ export function NovelDetail({
       </section>
 
       {/* Galeria de capas geradas por IA */}
-      <CoverGallery novelId={novelId} doneJobsKey={doneJobsKey} />
+      <CoverGallery
+        novelId={novelId}
+        doneJobsKey={doneJobsKey}
+        defaultStyle={novel.default_cover_style}
+      />
 
       {/* Glossary preview */}
       {characters.length > 0 && (
@@ -445,14 +449,19 @@ function CoverThumb({ url, alt }: { url: string; alt: string }): React.JSX.Eleme
 // vários formatos (com/sem texto, wallpapers). Re-busca quando um job termina.
 function CoverGallery({
   novelId,
-  doneJobsKey
+  doneJobsKey,
+  defaultStyle
 }: {
   novelId: number
   doneJobsKey: string
+  defaultStyle: string | null
 }): React.JSX.Element | null {
   const [covers, setCovers] = useState<CoverOut[]>([])
   const [loaded, setLoaded] = useState(false)
   const [selectedId, setSelectedId] = useState<number | null>(null)
+  const [confirmAll, setConfirmAll] = useState(false)
+  const [regenAll, setRegenAll] = useState(false)
+  const [allMsg, setAllMsg] = useState<{ ok: boolean; text: string } | null>(null)
 
   useEffect(() => {
     api
@@ -465,15 +474,92 @@ function CoverGallery({
   if (!loaded || covers.length === 0) return null
 
   const selected = covers.find((c) => c.id === selectedId) ?? null
+  const styleLabel = defaultStyle ? (COVER_STYLE_LABELS[defaultStyle] ?? defaultStyle) : null
+  const cost = (covers.length * 0.2).toFixed(2).replace('.', ',')
+
+  async function regenerateAll(): Promise<void> {
+    setRegenAll(true)
+    setAllMsg(null)
+    try {
+      const jobs = await api.regenerateAllCovers(novelId)
+      setConfirmAll(false)
+      setAllMsg({
+        ok: true,
+        text: `${jobs.length} capas na fila — acompanhe em Downloads; vão se realinhar ao terminar`
+      })
+    } catch (err) {
+      setAllMsg({ ok: false, text: err instanceof Error ? err.message : String(err) })
+    } finally {
+      setRegenAll(false)
+    }
+  }
 
   return (
     <section className="space-y-3">
-      <h3 className="font-display flex items-baseline gap-3 text-lg font-medium tracking-tight">
-        Galeria de capas
-        <span className="font-sans text-[11px] tracking-[0.16em] uppercase text-[var(--ink-400)]">
-          clique pra baixar
-        </span>
-      </h3>
+      <div className="flex flex-wrap items-baseline justify-between gap-2">
+        <h3 className="font-display flex items-baseline gap-3 text-lg font-medium tracking-tight">
+          Galeria de capas
+          <span className="font-sans text-[11px] tracking-[0.16em] uppercase text-[var(--ink-400)]">
+            clique pra baixar
+          </span>
+        </h3>
+        {!confirmAll ? (
+          <button
+            type="button"
+            onClick={() => {
+              setAllMsg(null)
+              setConfirmAll(true)
+            }}
+            className="font-sans inline-flex items-center gap-1.5 rounded-lg border border-[var(--border-soft)] bg-[var(--paper-100)] px-2.5 py-1 text-[11px] text-[var(--ink-700)] transition-colors hover:border-[var(--stamp-red)] hover:text-[var(--stamp-red)]"
+          >
+            <RefreshCw className="size-3" /> Regerar todas
+          </button>
+        ) : (
+          <div className="flex items-center gap-2">
+            <span className="font-sans text-[11px] text-[var(--ink-500)]">
+              {covers.length} capas{styleLabel ? ` · ${styleLabel}` : ' · automático'} · ~R${cost}?
+            </span>
+            <button
+              type="button"
+              onClick={regenerateAll}
+              disabled={regenAll}
+              className="font-sans inline-flex items-center gap-1 rounded-lg bg-[var(--stamp-red)] px-2.5 py-1 text-[11px] text-[var(--paper-50)] disabled:opacity-50"
+            >
+              {regenAll ? (
+                <Loader2 className="size-3 animate-spin" />
+              ) : (
+                <RefreshCw className="size-3" />
+              )}
+              Confirmar
+            </button>
+            <button
+              type="button"
+              onClick={() => setConfirmAll(false)}
+              disabled={regenAll}
+              className="font-sans rounded-lg px-2 py-1 text-[11px] text-[var(--ink-500)] hover:text-[var(--ink-900)]"
+            >
+              Cancelar
+            </button>
+          </div>
+        )}
+      </div>
+      {allMsg && (
+        <p
+          className={
+            allMsg.ok
+              ? 'font-sans text-[12px] text-[var(--book-3)]'
+              : 'font-sans text-[12px] text-[var(--ink-stamp)]'
+          }
+        >
+          {allMsg.text}
+        </p>
+      )}
+      {!styleLabel && (
+        <p className="font-sans text-[11px] text-[var(--ink-400)]">
+          Sem estilo travado: as capas podem sair com estilos diferentes. Escolha um estilo (no
+          dropdown “Regerar capa” de um volume) antes, pra coleção ficar consistente.
+        </p>
+      )}
       <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
         {covers.map((c) => (
           <button

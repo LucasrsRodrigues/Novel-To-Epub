@@ -342,6 +342,56 @@ def regenerate_volume_cover(
     return new_job.to_status()
 
 
+@router.post(
+    "/library/{novel_id}/regenerate-all-covers",
+    response_model=list[JobStatus],
+    status_code=201,
+)
+def regenerate_all_covers(
+    novel_id: int,
+    body: RegenerateCoverRequest | None = None,
+    jobs: JobManager = Depends(get_jobs),
+) -> list[JobStatus]:
+    """Regera TODAS as capas IA da novel de uma vez, pra alinhar a coleção.
+
+    Reseta a âncora de série (paleta+luz) e enfileira os volumes em ORDEM (o 1o
+    re-estabelece a âncora a partir da nova arte, os demais herdam). Custa
+    ~R$0,20 por volume. ``cover_style`` opcional troca o estilo travado de todos.
+    """
+    vols = VolumeStore().list_for_novel(novel_id)
+    # So os volumes que ja tem capa IA (a "coleção"); ordena por capitulo inicial
+    # asc pra o Volume 1 rodar primeiro e definir a âncora da serie.
+    targets = sorted((v for v in vols if v["ai_cover"]), key=lambda v: v["start"])
+    if not targets:
+        raise HTTPException(status_code=404, detail="nenhuma capa IA pra regerar nesta novel")
+
+    style = body.cover_style if body else None
+    if style:
+        # Estilo explicito vira o default de todos (e ja zera a âncora antiga).
+        ChapterCache().set_default_cover_style(novel_id, style)
+    else:
+        # Sem troca de estilo: so reseta a âncora pra re-derivar da nova 1a capa.
+        ChapterCache().set_series_anchor(novel_id, None, None)
+
+    out: list[JobStatus] = []
+    for v in targets:
+        CoverCache().delete(novel_id, v["volume_title"])
+        job = jobs.enqueue(
+            DownloadRequest(
+                url=v["source_url"],
+                start=v["start"],
+                end=v["end"],
+                with_cover=v["with_cover"],
+                translate_to=v["translate_to"],
+                volume_title=v["volume_title"],
+                ai_cover=True,
+                cover_style=style,
+            )
+        )
+        out.append(job.to_status())
+    return out
+
+
 # ---------------------------------------------------------------- galeria de capas
 _COVER_KINDS = {"titled", "raw", "phone", "pc", "pc_hd"}
 _WALLPAPER_KINDS = {"phone", "pc", "pc_hd"}
