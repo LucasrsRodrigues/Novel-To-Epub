@@ -385,20 +385,23 @@ async def _generate_image_bytes(
     image_model: str,
     prompt: str,
     novel_id: int,
+    aspect_ratio: str = "2:3",
+    image_size: str = "2K",
 ) -> tuple[bytes, str]:
     """Chama o Gemini image model e extrai os bytes da imagem.
 
     Aspect ratio 2:3 e resolucao 2K dao ~1408x2112 (portrait), proximo da
     recomendacao Amazon p/ capa Kindle (1600x2560, ratio 1.6:1). O prompt em
     `_build_image_prompt` ja pede portrait mas o modelo ignora — precisa do
-    `image_config` explicito.
+    `image_config` explicito. ``aspect_ratio`` permite gerar wallpapers nativos
+    (ex: "9:16", "16:9") com o mesmo conteudo.
     """
     config = types.GenerateContentConfig(
         response_modalities=["IMAGE"],
         temperature=0.9,
         image_config=types.ImageConfig(
-            aspect_ratio="2:3",  # portrait book cover
-            image_size="2K",
+            aspect_ratio=aspect_ratio,
+            image_size=image_size,
         ),
     )
     resp = await call_with_retry(
@@ -479,6 +482,7 @@ async def generate_or_cache_cover(
         novel_id=novel_id,
         volume_title=volume_title,
         image_data=final_bytes,
+        image_data_raw=raw_bytes,  # arte sem texto, pra galeria/wallpapers
         mime_type=final_mime,
         prompt=prompt,
         model=image_model,
@@ -492,3 +496,56 @@ async def generate_or_cache_cover(
         raw_bytes=len(raw_bytes),
     )
     return final_bytes, final_mime
+
+
+def _wallpaper_prompt(base_prompt: str, aspect: str) -> str:
+    """Adapta o prompt da capa pra um wallpaper full-bleed na proporcao dada.
+    Mantem cena + direcao de arte; tira o enquadramento de 'capa de livro'."""
+    orientation = "vertical" if aspect == "9:16" else "horizontal"
+    return (
+        base_prompt
+        + f"\n\nRENDER AS A FULL-BLEED {orientation.upper()} WALLPAPER ({aspect}): "
+        "fill the entire frame edge to edge, recomposing/extending the scene "
+        "naturally to fit the wider canvas. No book-cover framing, no spine, no "
+        "borders, no margins, no text. Pure illustration."
+    )
+
+
+async def generate_native_wallpaper(
+    *,
+    cover_id: int,
+    fmt: str,
+    image_model: str = "gemini-2.5-flash-image",
+) -> tuple[bytes, str]:
+    """Gera (via Gemini, PAGO ~$0.04) um wallpaper nativo na proporcao do ``fmt``
+    ('phone'|'pc'), reusando o prompt da capa. Cacheia em GeneratedCoverVariant.
+    """
+    from app.image_gen.wallpaper import ASPECT_BY_FORMAT
+
+    aspect = ASPECT_BY_FORMAT.get(fmt)
+    if aspect is None:
+        raise CoverGenError(f"formato de wallpaper desconhecido: {fmt}")
+
+    cache = CoverCache()
+    cached = cache.get_variant(cover_id, aspect)
+    if cached is not None:
+        return cached
+
+    row = cache.get_by_id(cover_id)
+    if row is None:
+        raise CoverGenError("capa nao encontrada")
+
+    client = genai.Client(api_key=_resolve_api_key())
+    prompt = _wallpaper_prompt(row["prompt"], aspect)
+    img_bytes, mime = await _generate_image_bytes(
+        client=client,
+        image_model=image_model,
+        prompt=prompt,
+        novel_id=row["novel_id"],
+        aspect_ratio=aspect,
+    )
+    cache.save_variant(
+        cover_id=cover_id, aspect=aspect, image_data=img_bytes, mime_type=mime
+    )
+    log.info("wallpaper_native_generated", cover_id=cover_id, aspect=aspect, bytes=len(img_bytes))
+    return img_bytes, mime

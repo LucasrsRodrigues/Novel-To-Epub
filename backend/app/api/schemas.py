@@ -39,6 +39,23 @@ class DownloadRequest(BaseModel):
     replace_volume_id: int | None = None
 
 
+class CoverOut(BaseModel):
+    """Metadados de uma capa gerada por IA, pra galeria (sem os BLOBs)."""
+
+    id: int
+    novel_id: int
+    volume_title: str | None
+    mime_type: str
+    has_raw: bool  # tem arte sem texto (covers antigas podem nao ter)
+    native_aspects: list[str]  # proporcoes ja geradas nativamente (ex: ["16:9"])
+    created_at: datetime
+
+    @field_validator("created_at", mode="before")
+    @classmethod
+    def _force_utc(cls, v):
+        return _assume_utc(v) if isinstance(v, datetime) else v
+
+
 class RegenerateCoverRequest(BaseModel):
     """Body opcional do POST de regerar capa. Carrega o estilo de arte escolhido."""
 

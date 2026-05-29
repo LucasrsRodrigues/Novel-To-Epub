@@ -10,13 +10,17 @@ import {
   ImageIcon,
   Languages,
   Loader2,
+  Monitor,
   Plus,
   RefreshCw,
   Send,
+  Smartphone,
+  Sparkles,
   Trash2
 } from 'lucide-react'
 import {
   api,
+  type CoverOut,
   type GlossaryEntry,
   type JobStatus,
   type NovelDetail as NovelDetailT,
@@ -296,6 +300,9 @@ export function NovelDetail({
         )}
       </section>
 
+      {/* Galeria de capas geradas por IA */}
+      <CoverGallery novelId={novelId} doneJobsKey={doneJobsKey} />
+
       {/* Glossary preview */}
       {characters.length > 0 && (
         <section className="space-y-3">
@@ -364,6 +371,244 @@ function StatTile({
         {label}
       </div>
     </Tag>
+  )
+}
+
+// As imagens da galeria vêm do backend (http://127.0.0.1:8000). No app empacotado
+// o renderer roda em file:// → <img src> cross-origin é bloqueado pelo ORB do
+// Chromium. fetch() passa (CORS liberado), então buscamos os bytes e os
+// convertemos em data: URL (decodifica em qualquer contexto, sem precisar
+// revogar object URL).
+async function fetchDataUrl(url: string): Promise<string> {
+  const res = await fetch(url)
+  if (!res.ok) throw new Error(`falha ao carregar (${res.status})`)
+  const blob = await res.blob()
+  return await new Promise<string>((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => resolve(reader.result as string)
+    reader.onerror = () => reject(new Error('falha ao ler imagem'))
+    reader.readAsDataURL(blob)
+  })
+}
+
+function slugifyName(s: string): string {
+  return (
+    s
+      .normalize('NFD')
+      .replace(/[̀-ͯ]/g, '')
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '') || 'capa'
+  )
+}
+
+async function downloadCover(url: string, filename: string): Promise<void> {
+  const dataUrl = await fetchDataUrl(url)
+  const a = document.createElement('a')
+  a.href = dataUrl
+  a.download = filename
+  document.body.appendChild(a)
+  a.click()
+  a.remove()
+}
+
+function CoverThumb({ url, alt }: { url: string; alt: string }): React.JSX.Element {
+  const [src, setSrc] = useState<string | null>(null)
+  useEffect(() => {
+    let alive = true
+    fetchDataUrl(url)
+      .then((u) => {
+        if (alive) setSrc(u)
+      })
+      .catch(() => {})
+    return () => {
+      alive = false
+    }
+  }, [url])
+  return src ? (
+    <img
+      src={src}
+      alt={alt}
+      className="aspect-[2/3] w-full rounded-md object-cover shadow-[0_2px_8px_rgba(80,50,20,0.18)]"
+    />
+  ) : (
+    <div className="flex aspect-[2/3] w-full items-center justify-center rounded-md bg-[var(--paper-300)]">
+      <Loader2 className="size-5 animate-spin text-[var(--ink-400)]" />
+    </div>
+  )
+}
+
+// Galeria das capas geradas por IA da novel — preview + download da arte em
+// vários formatos (com/sem texto, wallpapers). Re-busca quando um job termina.
+function CoverGallery({
+  novelId,
+  doneJobsKey
+}: {
+  novelId: number
+  doneJobsKey: string
+}): React.JSX.Element | null {
+  const [covers, setCovers] = useState<CoverOut[]>([])
+  const [loaded, setLoaded] = useState(false)
+
+  useEffect(() => {
+    api
+      .listCovers(novelId)
+      .then(setCovers)
+      .catch(() => setCovers([]))
+      .finally(() => setLoaded(true))
+  }, [novelId, doneJobsKey])
+
+  if (!loaded || covers.length === 0) return null
+
+  return (
+    <section className="space-y-3">
+      <h3 className="font-display flex items-baseline gap-3 text-lg font-medium tracking-tight">
+        Galeria de capas
+        <span className="font-sans text-[11px] tracking-[0.16em] uppercase text-[var(--ink-400)]">
+          baixe a arte
+        </span>
+      </h3>
+      <div className="grid grid-cols-2 gap-4 sm:grid-cols-3">
+        {covers.map((c) => (
+          <CoverCard
+            key={c.id}
+            cover={c}
+            onUpdated={(u) => setCovers((prev) => prev.map((x) => (x.id === u.id ? u : x)))}
+          />
+        ))}
+      </div>
+    </section>
+  )
+}
+
+function CoverCard({
+  cover,
+  onUpdated
+}: {
+  cover: CoverOut
+  onUpdated: (c: CoverOut) => void
+}): React.JSX.Element {
+  const [busy, setBusy] = useState<'phone' | 'pc' | null>(null)
+  const [err, setErr] = useState<string | null>(null)
+
+  const base = slugifyName(cover.volume_title ?? `capa-${cover.id}`)
+
+  async function genNative(fmt: 'phone' | 'pc'): Promise<void> {
+    setBusy(fmt)
+    setErr(null)
+    try {
+      onUpdated(await api.generateNativeWallpaper(cover.id, fmt))
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e))
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  function download(
+    kind: 'titled' | 'raw' | 'phone' | 'pc',
+    opts: { native?: boolean } = {}
+  ): void {
+    const suffix = {
+      titled: '',
+      raw: '-sem-texto',
+      phone: '-wallpaper-celular',
+      pc: '-wallpaper-pc'
+    }[kind]
+    // wallpaper local = jpg; capa/arte e wallpaper nativo (Gemini) = png
+    const ext = (kind === 'phone' || kind === 'pc') && !opts.native ? 'jpg' : 'png'
+    const nativeTag = opts.native ? '-nativo' : ''
+    setErr(null)
+    downloadCover(
+      api.coverFileUrl(cover.id, kind, { native: opts.native, download: true }),
+      `${base}${suffix}${nativeTag}.${ext}`
+    ).catch((e) => setErr(e instanceof Error ? e.message : String(e)))
+  }
+
+  const dl =
+    'font-sans inline-flex items-center gap-1 rounded-md border border-[var(--border-soft)] bg-[var(--paper-100)] px-2 py-1 text-[11px] text-[var(--ink-700)] transition-colors hover:border-[var(--stamp-red)] hover:text-[var(--stamp-red)]'
+  const nativeFmts: {
+    fmt: 'phone' | 'pc'
+    aspect: string
+    label: string
+    Icon: typeof Smartphone
+  }[] = [
+    { fmt: 'phone', aspect: '9:16', label: 'Celular', Icon: Smartphone },
+    { fmt: 'pc', aspect: '16:9', label: 'PC', Icon: Monitor }
+  ]
+
+  return (
+    <div className="flex flex-col gap-2 rounded-xl border border-[var(--border-soft)] bg-[var(--paper-100)] p-3">
+      <CoverThumb url={api.coverFileUrl(cover.id, 'titled')} alt={cover.volume_title ?? 'capa'} />
+      <div
+        className="font-display truncate text-[13px] font-medium"
+        title={cover.volume_title ?? ''}
+      >
+        {cover.volume_title ?? 'Capa da novel'}
+      </div>
+
+      {/* Downloads locais (grátis) */}
+      <div className="flex flex-wrap gap-1.5">
+        <button type="button" className={dl} onClick={() => download('titled')}>
+          <Download className="size-3" /> Com título
+        </button>
+        {cover.has_raw && (
+          <>
+            <button type="button" className={dl} onClick={() => download('raw')}>
+              <Download className="size-3" /> Sem texto
+            </button>
+            <button type="button" className={dl} onClick={() => download('phone')}>
+              <Smartphone className="size-3" /> Celular
+            </button>
+            <button type="button" className={dl} onClick={() => download('pc')}>
+              <Monitor className="size-3" /> PC
+            </button>
+          </>
+        )}
+      </div>
+
+      {!cover.has_raw ? (
+        <p className="font-sans text-[10px] leading-snug text-[var(--ink-400)]">
+          Regenere a capa pra liberar a arte sem texto e os wallpapers.
+        </p>
+      ) : (
+        <div className="space-y-1 border-t border-[var(--border-soft)] pt-2">
+          <span className="font-sans text-[10px] tracking-wide text-[var(--ink-400)]">
+            Wallpaper nativo (Gemini · ~R$0,20):
+          </span>
+          <div className="flex flex-wrap gap-1.5">
+            {nativeFmts.map(({ fmt, aspect, label, Icon }) =>
+              cover.native_aspects.includes(aspect) ? (
+                <button
+                  key={fmt}
+                  type="button"
+                  className={dl}
+                  onClick={() => download(fmt, { native: true })}
+                >
+                  <Icon className="size-3" /> {label} ✓
+                </button>
+              ) : (
+                <button
+                  key={fmt}
+                  type="button"
+                  onClick={() => genNative(fmt)}
+                  disabled={busy !== null}
+                  className={dl + ' disabled:opacity-50'}
+                >
+                  {busy === fmt ? (
+                    <Loader2 className="size-3 animate-spin" />
+                  ) : (
+                    <Sparkles className="size-3" />
+                  )}
+                  Gerar {label}
+                </button>
+              )
+            )}
+          </div>
+          {err && <p className="font-sans text-[10px] text-[var(--ink-stamp)]">{err}</p>}
+        </div>
+      )}
+    </div>
   )
 }
 

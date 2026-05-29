@@ -141,6 +141,18 @@ export interface SettingsUpdate {
   cover_styles_enabled?: string[]
 }
 
+export type CoverKind = 'titled' | 'raw' | 'phone' | 'pc'
+
+export interface CoverOut {
+  id: number
+  novel_id: number
+  volume_title: string | null
+  mime_type: string
+  has_raw: boolean
+  native_aspects: string[] // ex: ["16:9"]
+  created_at: string
+}
+
 export interface ChapterSummary {
   index: number
   title_en: string
@@ -288,6 +300,20 @@ export const api = {
   getNovelVolumes: (novelId: number) => http<VolumeOut[]>(`/api/library/${novelId}/volumes`),
   getGlossary: (novelId: number) => http<GlossaryEntry[]>(`/api/library/${novelId}/glossary`),
   volumeFileUrl: (id: number) => `${API_BASE}/api/volumes/${id}/file`,
+  // --- Galeria de capas ---
+  listCovers: (novelId: number) => http<CoverOut[]>(`/api/library/${novelId}/covers`),
+  coverFileUrl: (
+    coverId: number,
+    kind: CoverKind,
+    opts: { native?: boolean; download?: boolean } = {}
+  ): string => {
+    const q = new URLSearchParams({ kind })
+    if (opts.native) q.set('native', 'true')
+    if (opts.download) q.set('download', 'true')
+    return `${API_BASE}/api/covers/${coverId}/file?${q.toString()}`
+  },
+  generateNativeWallpaper: (coverId: number, fmt: 'phone' | 'pc') =>
+    http<CoverOut>(`/api/covers/${coverId}/native?fmt=${fmt}`, { method: 'POST' }),
   sendVolumeToKindle: (id: number) =>
     http<{ status: string; to: string }>(`/api/volumes/${id}/kindle`, { method: 'POST' }),
   regenerateVolumeCover: (id: number, coverStyle?: string | null) =>

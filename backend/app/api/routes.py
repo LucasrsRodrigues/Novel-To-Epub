@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from fastapi.responses import FileResponse
 
 from app import __version__
@@ -13,6 +13,7 @@ from app.api.schemas import (
     ChapterDetail,
     ChapterSummary,
     ChapterTranslationUpdate,
+    CoverOut,
     DownloadRequest,
     GlossaryEntryOut,
     JobStatus,
@@ -339,6 +340,101 @@ def regenerate_volume_cover(
         )
     )
     return new_job.to_status()
+
+
+# ---------------------------------------------------------------- galeria de capas
+_COVER_KINDS = {"titled", "raw", "phone", "pc"}
+_EXT_BY_MIME = {"image/png": "png", "image/jpeg": "jpg", "image/webp": "webp"}
+
+
+@router.get("/library/{novel_id}/covers", response_model=list[CoverOut])
+def list_covers(novel_id: int) -> list[dict]:
+    """Capas geradas por IA desta novel — alimenta a galeria (sem os BLOBs)."""
+    return CoverCache().list_for_novel(novel_id)
+
+
+@router.get("/covers/{cover_id}/file")
+async def cover_file(
+    cover_id: int,
+    kind: str = "titled",
+    native: bool = False,
+    download: bool = False,
+) -> Response:
+    """Serve a imagem de uma capa.
+
+    ``kind``: titled (com titulo) | raw (sem texto) | phone (9:16) | pc (16:9).
+    Wallpapers (phone/pc) sao derivados LOCALMENTE da arte crua por padrao; com
+    ``native=true`` serve a variante nativa (Gemini) — 404 se ainda nao gerada.
+    ``download=true`` forca attachment (baixar em vez de exibir inline).
+    """
+    if kind not in _COVER_KINDS:
+        raise HTTPException(status_code=400, detail=f"kind invalido: {kind}")
+    row = CoverCache().get_by_id(cover_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="capa nao encontrada")
+
+    if kind == "titled":
+        data, mime = row["image_data"], row["mime_type"]
+    elif kind == "raw":
+        if row["image_data_raw"] is None:
+            raise HTTPException(
+                status_code=409,
+                detail="arte sem texto indisponivel — regenere a capa pra liberar",
+            )
+        data, mime = row["image_data_raw"], row["mime_type"]
+    else:  # phone | pc
+        from app.image_gen.wallpaper import ASPECT_BY_FORMAT, derive_wallpaper
+
+        if native:
+            variant = CoverCache().get_variant(cover_id, ASPECT_BY_FORMAT[kind])
+            if variant is None:
+                raise HTTPException(
+                    status_code=404,
+                    detail="wallpaper nativo ainda nao gerado pra este formato",
+                )
+            data, mime = variant
+        else:
+            if row["image_data_raw"] is None:
+                raise HTTPException(
+                    status_code=409,
+                    detail="arte sem texto indisponivel — regenere a capa pra liberar",
+                )
+            data, mime = derive_wallpaper(row["image_data_raw"], kind)
+
+    headers = {}
+    if download:
+        from slugify import slugify
+
+        base = slugify(row["volume_title"] or f"capa-{cover_id}")
+        suffix = {"titled": "", "raw": "-sem-texto", "phone": "-wallpaper-celular",
+                  "pc": "-wallpaper-pc"}[kind]
+        ext = _EXT_BY_MIME.get(mime, "png")
+        headers["Content-Disposition"] = f'attachment; filename="{base}{suffix}.{ext}"'
+    return Response(content=data, media_type=mime, headers=headers)
+
+
+@router.post("/covers/{cover_id}/native", response_model=CoverOut, status_code=201)
+async def generate_native_wallpaper_route(cover_id: int, fmt: str) -> dict:
+    """Gera (Gemini, ~R$0,20) o wallpaper NATIVO na proporcao do formato e cacheia.
+    ``fmt``: phone (9:16) | pc (16:9)."""
+    from app.image_gen.cover_generator import generate_native_wallpaper, CoverGenError
+
+    if fmt not in {"phone", "pc"}:
+        raise HTTPException(status_code=400, detail=f"fmt invalido: {fmt}")
+    row = CoverCache().get_by_id(cover_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="capa nao encontrada")
+    try:
+        await generate_native_wallpaper(cover_id=cover_id, fmt=fmt)
+    except CoverGenError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+    # Devolve o registro atualizado (native_aspects agora inclui o novo formato).
+    covers = CoverCache().list_for_novel(row["novel_id"])
+    updated = next((c for c in covers if c["id"] == cover_id), None)
+    if updated is None:
+        raise HTTPException(status_code=404, detail="capa sumiu apos gerar variante")
+    return updated
 
 
 @router.get(

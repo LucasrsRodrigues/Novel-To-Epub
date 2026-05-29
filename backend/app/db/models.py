@@ -162,13 +162,44 @@ class GeneratedCover(Base):
     )
     # "" significa cover-padrao-da-novel (sem volume_title)
     volume_title: Mapped[str] = mapped_column(String(500), default="")
-    image_data: Mapped[bytes] = mapped_column()
+    image_data: Mapped[bytes] = mapped_column()  # versao final (com titulo)
+    # Arte crua (sem a tipografia sobreposta) — usada pra download "sem texto" e
+    # pra derivar wallpapers. Nullable: covers antigas so tem a versao com titulo.
+    image_data_raw: Mapped[bytes | None] = mapped_column(nullable=True)
     mime_type: Mapped[str] = mapped_column(String(50), default="image/png")
     prompt: Mapped[str] = mapped_column(Text)
     model: Mapped[str] = mapped_column(String(50))
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
+
+    variants: Mapped[list["GeneratedCoverVariant"]] = relationship(
+        back_populates="cover", cascade="all, delete-orphan"
+    )
+
+
+class GeneratedCoverVariant(Base):
+    """Variantes nativas (Gemini) da arte numa proporcao diferente — wallpapers
+    gerados sob demanda. As variantes LOCAIS (Pillow) sao derivadas on-the-fly e
+    nao ficam aqui; so as nativas (pagas) sao cacheadas pra nao re-gerar."""
+
+    __tablename__ = "generated_cover_variants"
+    __table_args__ = (
+        UniqueConstraint("cover_id", "aspect", name="uq_variant_cover_aspect"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    cover_id: Mapped[int] = mapped_column(
+        ForeignKey("generated_covers.id", ondelete="CASCADE"), index=True
+    )
+    aspect: Mapped[str] = mapped_column(String(10))  # ex: "9:16", "16:9"
+    image_data: Mapped[bytes] = mapped_column()
+    mime_type: Mapped[str] = mapped_column(String(50), default="image/png")
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+
+    cover: Mapped["GeneratedCover"] = relationship(back_populates="variants")
 
 
 class WikiLookup(Base):
