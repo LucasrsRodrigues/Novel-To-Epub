@@ -328,11 +328,17 @@ COMPOSITION:
 - Portrait orientation, 2:3 aspect ratio (vertical book cover).
 - One strong focal subject. Rule of thirds composition.{medium_line}
 - Rich detail without clutter.
+- Keep the lower third calmer and less busy (no faces or critical detail at the
+  very bottom) — a title bar is added there afterwards.
 
-STRICTLY DO NOT INCLUDE:
-- Any text, letters, words, captions, titles, signatures, or watermarks.
-- UI elements, frames, borders, logos.
-- The output must be PURE illustration with zero typography."""
+ABSOLUTELY NO TEXT — THIS IS CRITICAL:
+- Do NOT render any letters, words, numbers, titles, the series name, captions,
+  signatures, watermarks, logos, frames, borders, or UI elements.
+- The title and series name are composited separately AFTER generation — if you
+  draw any text it will collide with it and look broken.
+- If the scene would naturally include text (book spines, signs, banners, runes
+  as letters), leave those surfaces blank or use abstract non-letter marks.
+- Output a PURE, 100% TEXTLESS illustration."""
 
 
 async def _build_visual_brief(
@@ -453,6 +459,15 @@ async def generate_or_cache_cover(
     if cached is not None:
         log.info("cover_cache_hit", novel_id=novel_id, volume_title=volume_title)
         return cached
+
+    # Consistencia de serie: sem estilo explicito, herda o estilo-padrao da novel
+    # (gravado numa escolha anterior). Assim todos os volumes nascem coerentes em
+    # vez da IA escolher uma estetica diferente pra cada um.
+    if not cover_style:
+        novel_row = ChapterCache().get_novel(novel_id)
+        if novel_row and novel_row.get("default_cover_style"):
+            cover_style = novel_row["default_cover_style"]
+            log.info("cover_style_from_novel_default", novel_id=novel_id, style=cover_style)
 
     style_override = style_prompt(cover_style)
     client = genai.Client(api_key=_resolve_api_key())
