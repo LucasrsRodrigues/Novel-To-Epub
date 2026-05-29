@@ -23,6 +23,7 @@ from google.genai import types
 from PIL import Image, ImageDraw, ImageFont
 from pydantic import BaseModel, Field
 
+from app.db.cache import ChapterCache
 from app.db.cover_cache import CoverCache
 from app.image_gen.cover_styles import style_prompt
 from app.db.settings_store import SettingsStore
@@ -549,3 +550,48 @@ async def generate_native_wallpaper(
     )
     log.info("wallpaper_native_generated", cover_id=cover_id, aspect=aspect, bytes=len(img_bytes))
     return img_bytes, mime
+
+
+async def regenerate_cover_art(
+    *,
+    cover_id: int,
+    image_model: str = "gemini-2.5-flash-image",
+) -> tuple[bytes, str]:
+    """Re-gera a arte (via Gemini, PAGO ~$0.04) REUSANDO o prompt salvo da capa.
+
+    Usado pra liberar a "arte sem texto" em capas antigas (geradas antes de
+    salvarmos a versao crua). A cena/estilo ficam iguais (mesmo prompt), mas e
+    uma geracao nova. Salva raw + recompoe o titulo por cima. Retorna a versao
+    com titulo ``(bytes, mime)``.
+    """
+    cache = CoverCache()
+    row = cache.get_by_id(cover_id)
+    if row is None:
+        raise CoverGenError("capa nao encontrada")
+
+    novel = ChapterCache().get_novel(row["novel_id"])
+    if novel is None:
+        raise CoverGenError("novel da capa nao encontrada")
+
+    client = genai.Client(api_key=_resolve_api_key())
+    raw_bytes, raw_mime = await _generate_image_bytes(
+        client=client, image_model=image_model, prompt=row["prompt"],
+        novel_id=row["novel_id"],
+    )
+    final_bytes, final_mime = _composite_title_overlay(
+        raw_bytes,
+        novel_title=novel["title"],
+        volume_title=row["volume_title"],
+        mime=raw_mime,
+    )
+    cache.save(
+        novel_id=row["novel_id"],
+        volume_title=row["volume_title"],
+        image_data=final_bytes,
+        image_data_raw=raw_bytes,
+        mime_type=final_mime,
+        prompt=row["prompt"],
+        model=image_model,
+    )
+    log.info("cover_art_regenerated", cover_id=cover_id, bytes=len(final_bytes))
+    return final_bytes, final_mime

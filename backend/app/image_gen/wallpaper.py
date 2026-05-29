@@ -15,14 +15,17 @@ from PIL import Image, ImageEnhance, ImageFilter
 
 # Presets (largura, altura) por formato. Resolucoes comuns de wallpaper.
 PRESETS: dict[str, tuple[int, int]] = {
-    "phone": (1080, 1920),  # 9:16 vertical
-    "pc": (1920, 1080),     # 16:9 horizontal
+    "phone": (1080, 1920),   # 9:16 vertical
+    "pc": (1920, 1080),      # 16:9 horizontal (Full HD)
+    "pc_hd": (2560, 1440),   # 16:9 horizontal (QHD, telas grandes)
 }
 
-# Aspect ratio que o Gemini usa pra cada formato (geracao nativa).
+# Aspect ratio que o Gemini usa pra cada formato (geracao nativa). pc e pc_hd
+# compartilham 16:9 — a variante nativa e a mesma; so o preset local muda.
 ASPECT_BY_FORMAT: dict[str, str] = {
     "phone": "9:16",
     "pc": "16:9",
+    "pc_hd": "16:9",
 }
 
 

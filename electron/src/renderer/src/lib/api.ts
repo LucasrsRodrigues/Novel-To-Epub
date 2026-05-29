@@ -141,7 +141,8 @@ export interface SettingsUpdate {
   cover_styles_enabled?: string[]
 }
 
-export type CoverKind = 'titled' | 'raw' | 'phone' | 'pc'
+export type CoverKind = 'titled' | 'raw' | 'phone' | 'pc' | 'pc_hd'
+export type WallpaperFmt = 'phone' | 'pc' | 'pc_hd'
 
 export interface CoverOut {
   id: number
@@ -273,7 +274,11 @@ async function http<T>(path: string, init?: RequestInit): Promise<T> {
     }
     throw new Error(detail)
   }
-  return (await res.json()) as T
+  // Respostas sem corpo (204 No Content, ex: DELETE) ou vazias não são JSON —
+  // tentar `res.json()` aí explode com "Unexpected end of JSON input".
+  if (res.status === 204) return undefined as T
+  const text = await res.text()
+  return (text ? JSON.parse(text) : undefined) as T
 }
 
 export const api = {
@@ -312,8 +317,10 @@ export const api = {
     if (opts.download) q.set('download', 'true')
     return `${API_BASE}/api/covers/${coverId}/file?${q.toString()}`
   },
-  generateNativeWallpaper: (coverId: number, fmt: 'phone' | 'pc') =>
+  generateNativeWallpaper: (coverId: number, fmt: WallpaperFmt) =>
     http<CoverOut>(`/api/covers/${coverId}/native?fmt=${fmt}`, { method: 'POST' }),
+  regenerateCoverArt: (coverId: number) =>
+    http<CoverOut>(`/api/covers/${coverId}/regenerate-art`, { method: 'POST' }),
   sendVolumeToKindle: (id: number) =>
     http<{ status: string; to: string }>(`/api/volumes/${id}/kindle`, { method: 'POST' }),
   regenerateVolumeCover: (id: number, coverStyle?: string | null) =>

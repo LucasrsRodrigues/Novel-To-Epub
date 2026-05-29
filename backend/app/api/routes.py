@@ -343,7 +343,8 @@ def regenerate_volume_cover(
 
 
 # ---------------------------------------------------------------- galeria de capas
-_COVER_KINDS = {"titled", "raw", "phone", "pc"}
+_COVER_KINDS = {"titled", "raw", "phone", "pc", "pc_hd"}
+_WALLPAPER_KINDS = {"phone", "pc", "pc_hd"}
 _EXT_BY_MIME = {"image/png": "png", "image/jpeg": "jpg", "image/webp": "webp"}
 
 
@@ -407,7 +408,7 @@ async def cover_file(
 
         base = slugify(row["volume_title"] or f"capa-{cover_id}")
         suffix = {"titled": "", "raw": "-sem-texto", "phone": "-wallpaper-celular",
-                  "pc": "-wallpaper-pc"}[kind]
+                  "pc": "-wallpaper-pc", "pc_hd": "-wallpaper-pc-2560"}[kind]
         ext = _EXT_BY_MIME.get(mime, "png")
         headers["Content-Disposition"] = f'attachment; filename="{base}{suffix}.{ext}"'
     return Response(content=data, media_type=mime, headers=headers)
@@ -416,10 +417,10 @@ async def cover_file(
 @router.post("/covers/{cover_id}/native", response_model=CoverOut, status_code=201)
 async def generate_native_wallpaper_route(cover_id: int, fmt: str) -> dict:
     """Gera (Gemini, ~R$0,20) o wallpaper NATIVO na proporcao do formato e cacheia.
-    ``fmt``: phone (9:16) | pc (16:9)."""
+    ``fmt``: phone (9:16) | pc | pc_hd (ambos 16:9 — compartilham a variante)."""
     from app.image_gen.cover_generator import generate_native_wallpaper, CoverGenError
 
-    if fmt not in {"phone", "pc"}:
+    if fmt not in _WALLPAPER_KINDS:
         raise HTTPException(status_code=400, detail=f"fmt invalido: {fmt}")
     row = CoverCache().get_by_id(cover_id)
     if row is None:
@@ -434,6 +435,27 @@ async def generate_native_wallpaper_route(cover_id: int, fmt: str) -> dict:
     updated = next((c for c in covers if c["id"] == cover_id), None)
     if updated is None:
         raise HTTPException(status_code=404, detail="capa sumiu apos gerar variante")
+    return updated
+
+
+@router.post("/covers/{cover_id}/regenerate-art", response_model=CoverOut, status_code=201)
+async def regenerate_cover_art_route(cover_id: int) -> dict:
+    """Re-gera a arte (Gemini, ~R$0,20) reusando o prompt salvo — libera a versao
+    'sem texto' (+ wallpapers) em capas antigas que so tinham a versao com titulo."""
+    from app.image_gen.cover_generator import regenerate_cover_art, CoverGenError
+
+    row = CoverCache().get_by_id(cover_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="capa nao encontrada")
+    try:
+        await regenerate_cover_art(cover_id=cover_id)
+    except CoverGenError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+    covers = CoverCache().list_for_novel(row["novel_id"])
+    updated = next((c for c in covers if c["id"] == cover_id), None)
+    if updated is None:
+        raise HTTPException(status_code=404, detail="capa sumiu apos regerar arte")
     return updated
 
 
