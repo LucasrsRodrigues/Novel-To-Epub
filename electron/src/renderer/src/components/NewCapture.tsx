@@ -1,5 +1,14 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { CircleAlert, CircleCheck, Download, Eye, Languages, Loader2, Sparkles } from 'lucide-react'
+import {
+  CircleAlert,
+  CircleCheck,
+  Download,
+  Eye,
+  ImageIcon,
+  Languages,
+  Loader2,
+  Sparkles
+} from 'lucide-react'
 import { api, type JobStatus, type NovelPreview } from '@renderer/lib/api'
 import { useJobs } from '@renderer/context/JobsContext'
 import { COVER_STYLES } from '@renderer/lib/coverStyles'
@@ -47,6 +56,9 @@ export function NewCapture({
   const [withCover, setWithCover] = useState(true)
   const [translate, setTranslate] = useState(false)
   const [aiCover, setAiCover] = useState(false)
+  // Recaptura mantendo a capa: reusa a capa já gerada do volume (sem gerar nada).
+  // Mutuamente exclusivo com "Gerar capa com IA".
+  const [preserveCover, setPreserveCover] = useState(false)
   // Estilo de arte da capa ('' = automático/IA decide). Pré-preenchido pelo
   // default salvo da novel quando o preview roda.
   const [coverStyle, setCoverStyle] = useState('')
@@ -215,7 +227,8 @@ export function NewCapture({
         volume_title: volumeTitle.trim() || null,
         ai_cover: aiCover,
         cover_style: aiCover ? coverStyle || null : null,
-        skip_chapters: parseSkip(skipChapters)
+        skip_chapters: parseSkip(skipChapters),
+        preserve_cover: preserveCover
       })
       setJobId(res.id)
     } catch (err) {
@@ -423,7 +436,10 @@ export function NewCapture({
               <Checkbox
                 className="mt-0.5"
                 checked={aiCover}
-                onCheckedChange={(v) => setAiCover(v === true)}
+                onCheckedChange={(v) => {
+                  setAiCover(v === true)
+                  if (v === true) setPreserveCover(false) // exclusivos
+                }}
               />
               <div className="flex flex-col">
                 <span className="inline-flex items-center gap-1.5">
@@ -433,6 +449,29 @@ export function NewCapture({
                 <span className="font-sans text-[11px] leading-relaxed text-[var(--ink-400)]">
                   Lê o glossário + amostras dos capítulos pra criar uma capa que reflete o arco do
                   volume.
+                </span>
+              </div>
+            </label>
+
+            {/* Manter capa atual — pra recapturar capítulos (ex: corrigir com
+                "Ignorar capítulos") sem mexer na capa já gerada. */}
+            <label className="font-sans flex cursor-pointer items-start gap-3 text-[14px] text-[var(--ink-700)]">
+              <Checkbox
+                className="mt-0.5"
+                checked={preserveCover}
+                onCheckedChange={(v) => {
+                  setPreserveCover(v === true)
+                  if (v === true) setAiCover(false) // exclusivos
+                }}
+              />
+              <div className="flex flex-col">
+                <span className="inline-flex items-center gap-1.5">
+                  <ImageIcon className="size-4 text-[var(--book-3)]" />
+                  Manter capa atual <span className="text-[var(--ink-400)]">(recaptura)</span>
+                </span>
+                <span className="font-sans text-[11px] leading-relaxed text-[var(--ink-400)]">
+                  Reusa a capa já gerada deste volume — não regenera nada (R$ 0). Use pra recapturar
+                  capítulos sem alterar a capa.
                 </span>
               </div>
             </label>

@@ -51,6 +51,7 @@ async def download_to_epub(
     ai_cover: bool = False,
     cover_style: str | None = None,
     skip_chapters: list[int] | None = None,
+    preserve_cover: bool = False,
     on_complete: Callable[[dict], None] | None = None,
 ) -> Path:
     output_dir = Path(output_dir) if output_dir else settings.output_dir
@@ -196,7 +197,21 @@ async def download_to_epub(
 
     # ---- Fase 2.5: Capa por IA (opcional) — sobrescreve a raspada se OK ----
     cover_error: str | None = None
-    if ai_cover:
+    used_ai_cover = ai_cover
+    if preserve_cover:
+        # Recaptura mantendo a capa: reusa a capa já cacheada deste volume, sem
+        # gerar nada (zero token) e sem tocar no cache. Se não houver capa
+        # cacheada, mantém a raspada.
+        from app.db.cover_cache import CoverCache
+
+        cached_cover = CoverCache().get(novel_id, volume_title)
+        if cached_cover is not None:
+            cover = cached_cover[0]
+            used_ai_cover = True  # o EPUB leva a capa IA preservada
+            log.info("cover_preserved", novel_id=novel_id, volume_title=volume_title)
+        else:
+            log.info("cover_preserve_no_cache", novel_id=novel_id, volume_title=volume_title)
+    elif ai_cover:
         from app.image_gen.cover_generator import generate_or_cache_cover, CoverGenError
 
         from app.translation.glossary import GlossaryStore
@@ -256,7 +271,7 @@ async def download_to_epub(
         start=start,
         end=last,
         with_cover=with_cover,
-        ai_cover=ai_cover,
+        ai_cover=used_ai_cover,
         translate_to=translate_to,
         output_path=str(path),
         translation_failed=len(translation_failures),

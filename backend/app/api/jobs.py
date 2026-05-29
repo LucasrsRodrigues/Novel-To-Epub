@@ -38,6 +38,7 @@ class Job:
     ai_cover: bool = False
     cover_style: str | None = None  # id do estilo de arte (None = IA decide)
     skip_chapters: list[int] = field(default_factory=list)  # indices a ignorar
+    preserve_cover: bool = False  # recaptura reusando a capa cacheada (sem gerar)
     # Quando setado, este job NAO baixa/traduz — so regera a capa do volume e
     # recompila o .epub do cache (caminho leve "so capa"). None = job normal.
     cover_only_volume_id: int | None = None
@@ -137,6 +138,7 @@ class JobManager:
             ai_cover=req.ai_cover,
             cover_style=req.cover_style,
             skip_chapters=req.skip_chapters,
+            preserve_cover=req.preserve_cover,
             replace_volume_id=req.replace_volume_id,
         )
         self._jobs[job.id] = job
@@ -307,6 +309,7 @@ class JobManager:
             ai_cover=job.ai_cover,
             cover_style=job.cover_style,
             skip_chapters=job.skip_chapters,
+            preserve_cover=job.preserve_cover,
             on_complete=on_complete,
         )
         job.output_path = str(path)

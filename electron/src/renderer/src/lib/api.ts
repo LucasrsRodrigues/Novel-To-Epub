@@ -55,6 +55,8 @@ export interface DownloadRequest {
   cover_style?: string | null
   // Índices de capítulo a ignorar neste volume (ex: [1] pula o cap-lixo inicial).
   skip_chapters?: number[]
+  // Recaptura mantendo a capa: reusa a capa já cacheada do volume (sem gerar).
+  preserve_cover?: boolean
   // Quando setado, o volume com este id é removido (registro + .epub) assim que
   // o novo .epub nascer ok. Usado p/ "traduzir no lugar" (substitui o original).
   replace_volume_id?: number | null

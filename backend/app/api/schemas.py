@@ -34,6 +34,9 @@ class DownloadRequest(BaseModel):
     cover_style: str | None = None
     # Indices de capitulo a IGNORAR neste volume (ex: [1] pula o cap-lixo inicial).
     skip_chapters: list[int] = Field(default_factory=list)
+    # Recaptura mantendo a capa: reusa a capa ja cacheada do volume (sem gerar
+    # nem regerar, sem custo). Tem precedencia sobre ai_cover.
+    preserve_cover: bool = False
     # Quando setado, o volume com este id e removido (registro + .epub) DEPOIS que
     # o novo .epub for gerado com sucesso. Usado pra "traduzir no lugar": o volume
     # original (sem traducao) some quando a versao traduzida nasce, evitando
