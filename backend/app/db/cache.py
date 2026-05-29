@@ -36,12 +36,29 @@ class ChapterCache:
             return novel.id
 
     def set_default_cover_style(self, novel_id: int, style: str | None) -> None:
-        """Persiste o estilo de capa default da novel (ultima escolha explicita)."""
+        """Persiste o estilo de capa default da novel (ultima escolha explicita).
+        Trocar o estilo invalida a ancora de serie (paleta foi extraida sob o estilo
+        antigo) → zera pra ser reconstruida na proxima geracao sob o novo estilo."""
         with get_session() as s:
             novel = s.get(orm.Novel, novel_id)
             if novel is None:
                 return
+            if novel.default_cover_style != style:
+                novel.series_palette = None
+                novel.series_anchor_style = None
             novel.default_cover_style = style
+            s.commit()
+
+    def set_series_anchor(
+        self, novel_id: int, palette: str | None, style: str | None
+    ) -> None:
+        """Persiste a ancora de coesao da serie (paleta+luz) + o estilo usado pra deriva-la."""
+        with get_session() as s:
+            novel = s.get(orm.Novel, novel_id)
+            if novel is None:
+                return
+            novel.series_palette = palette
+            novel.series_anchor_style = style
             s.commit()
 
     def get_default_cover_style(self, source_url: str) -> str | None:
@@ -124,6 +141,8 @@ class ChapterCache:
                 "wiki_url": novel.wiki_url,
                 "wiki_status": novel.wiki_status,
                 "default_cover_style": novel.default_cover_style,
+                "series_palette": novel.series_palette,
+                "series_anchor_style": novel.series_anchor_style,
                 "chapters": count or 0,
             }
 

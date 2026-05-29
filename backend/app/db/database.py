@@ -47,6 +47,9 @@ _PENDING_COLUMNS: list[tuple[str, str, str]] = [
     ("novels", "wiki_url", "TEXT"),
     ("novels", "wiki_status", "VARCHAR(20) DEFAULT 'unknown'"),
     ("novels", "default_cover_style", "VARCHAR(60)"),
+    # Ancora de coesao da serie (paleta + luz) + estilo pra o qual foi construida.
+    ("novels", "series_palette", "TEXT"),
+    ("novels", "series_anchor_style", "VARCHAR(60)"),
     # Arte crua (sem texto) das capas — pra download "sem texto" e wallpapers.
     ("generated_covers", "image_data_raw", "BLOB"),
     # Cascade providers (mai 2026)

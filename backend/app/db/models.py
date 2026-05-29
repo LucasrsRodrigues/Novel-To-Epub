@@ -45,6 +45,11 @@ class Novel(Base):
     # Definido pela ultima escolha explicita de estilo num download/regerar.
     # None = sem default (cai no modo automatico).
     default_cover_style: Mapped[str | None] = mapped_column(String(60), nullable=True)
+    # Ancora de coesao da SERIE: paleta (nomes de cor) + chave de luz, extraida da
+    # 1a capa gerada e injetada no prompt das proximas pra todas combinarem.
+    series_palette: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Id do estilo pra o qual a ancora foi construida (staleness: muda o estilo → rebuild).
+    series_anchor_style: Mapped[str | None] = mapped_column(String(60), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )

@@ -298,11 +298,89 @@ EXCERTOS DOS CAPITULOS COBERTOS:
 Produza o JSON com `scene` + `style`."""
 
 
+_SERIES_BLOCK_HEADER = "SERIES CONSISTENCY"
+
+
+def _series_consistency_block(series_block: str) -> str:
+    """Bloco injetado pra todos os volumes da serie casarem em paleta + luz."""
+    return f"""
+
+{_SERIES_BLOCK_HEADER} — match the other volumes of this series:
+{series_block}
+Keep the same palette and the same overall brightness/mood key as the rest of the
+series. The SCENE above may differ per volume, but palette and lighting must read
+as one cohesive collection."""
+
+
+def _ensure_series_block(prompt: str, series_block: str | None) -> str:
+    """Injeta o bloco de serie num prompt salvo se ainda nao tiver (idempotente).
+    Usado pra re-alinhar capas antigas no regenerate sem re-derivar a ancora."""
+    if not series_block or _SERIES_BLOCK_HEADER in prompt:
+        return prompt
+    return prompt + _series_consistency_block(series_block)
+
+
+# Tabela compacta de cores nomeadas (nome -> RGB) pra traduzir os tons dominantes
+# da 1a capa em palavras que o Gemini entende (ele ignora hex, mas responde a nomes).
+_NAMED_COLORS: tuple[tuple[str, tuple[int, int, int]], ...] = (
+    ("black", (15, 15, 18)), ("charcoal", (45, 45, 50)), ("slate grey", (90, 95, 105)),
+    ("ash grey", (150, 150, 155)), ("white", (240, 240, 238)), ("cream", (235, 222, 195)),
+    ("deep crimson", (120, 25, 30)), ("crimson red", (190, 40, 45)), ("ember orange", (210, 95, 40)),
+    ("amber gold", (215, 165, 60)), ("pale gold", (225, 205, 140)), ("olive green", (110, 120, 60)),
+    ("forest green", (40, 95, 60)), ("emerald", (30, 150, 110)), ("teal", (35, 120, 130)),
+    ("deep teal", (20, 70, 80)), ("sky blue", (120, 175, 215)), ("slate blue", (70, 95, 150)),
+    ("deep indigo", (45, 45, 110)), ("midnight blue", (25, 30, 65)), ("royal purple", (95, 55, 145)),
+    ("violet", (150, 110, 200)), ("magenta", (190, 60, 150)), ("rose pink", (220, 130, 160)),
+    ("brown", (110, 75, 50)), ("tan", (180, 150, 110)),
+)
+
+
+def _nearest_color_name(rgb: tuple[int, int, int]) -> str:
+    r, g, b = rgb
+    return min(
+        _NAMED_COLORS,
+        key=lambda nc: (nc[1][0] - r) ** 2 + (nc[1][1] - g) ** 2 + (nc[1][2] - b) ** 2,
+    )[0]
+
+
+def _extract_series_anchor(raw_bytes: bytes, k: int = 5) -> str:
+    """Deriva a ancora de coesao (paleta + chave de luz) da arte CRUA da 1a capa.
+    Deterministico, Pillow puro (zero IA). Devolve uma string curta pro prompt."""
+    img = Image.open(BytesIO(raw_bytes)).convert("RGB")
+    img.thumbnail((256, 384))
+
+    # Chave de luz pela luminancia media (escuro/medio/claro) — e o que mais varia
+    # entre volumes e o que precisamos travar.
+    gray = img.convert("L")
+    pixels = list(gray.getdata())
+    mean_lum = sum(pixels) / len(pixels) if pixels else 128
+    if mean_lum < 85:
+        lighting = "dark, low-key lighting with deep shadows"
+    elif mean_lum < 170:
+        lighting = "balanced mid-key lighting"
+    else:
+        lighting = "bright, high-key lighting"
+
+    # Paleta: tons dominantes → nomes (dedup preservando ordem de frequencia).
+    quant = img.quantize(colors=k, method=Image.MEDIANCUT)
+    palette = quant.getpalette() or []
+    color_counts = sorted(quant.getcolors() or [], reverse=True)  # [(count, idx), ...]
+    names: list[str] = []
+    for _count, idx in color_counts:
+        rgb = (palette[idx * 3], palette[idx * 3 + 1], palette[idx * 3 + 2])
+        name = _nearest_color_name(rgb)
+        if name not in names:
+            names.append(name)
+    palette_str = ", ".join(names[:5]) or "muted neutral tones"
+    return f"Palette: {palette_str}. Lighting: {lighting}."
+
+
 def _build_image_prompt(
     novel_meta: NovelMeta,
     volume_title: str | None,
     brief: _Brief,
     style_override: str | None = None,
+    series_block: str | None = None,
 ) -> str:
     title_clause = (
         f"for the volume \"{volume_title}\" of the web novel series \"{novel_meta.title}\""
@@ -318,11 +396,14 @@ def _build_image_prompt(
     medium_line = (
         "" if style_override else "\n- Painterly digital illustration. Cinematic, atmospheric lighting."
     )
+    # Coesao de serie (paleta + luz) entre ART DIRECTION e COMPOSITION — a cena varia,
+    # mas a paleta/luz seguem a 1a capa. Anti-texto (CRITICAL) continua por ultimo.
+    series_clause = _series_consistency_block(series_block) if series_block else ""
     return f"""A dramatic book cover illustration {title_clause}.
 
 SCENE TO DEPICT: {brief.scene}
 
-ART DIRECTION: {art_direction}
+ART DIRECTION: {art_direction}{series_clause}
 
 COMPOSITION:
 - Portrait orientation, 2:3 aspect ratio (vertical book cover).
@@ -460,14 +541,23 @@ async def generate_or_cache_cover(
         log.info("cover_cache_hit", novel_id=novel_id, volume_title=volume_title)
         return cached
 
+    novel_row = ChapterCache().get_novel(novel_id)
     # Consistencia de serie: sem estilo explicito, herda o estilo-padrao da novel
     # (gravado numa escolha anterior). Assim todos os volumes nascem coerentes em
     # vez da IA escolher uma estetica diferente pra cada um.
-    if not cover_style:
-        novel_row = ChapterCache().get_novel(novel_id)
-        if novel_row and novel_row.get("default_cover_style"):
-            cover_style = novel_row["default_cover_style"]
-            log.info("cover_style_from_novel_default", novel_id=novel_id, style=cover_style)
+    if not cover_style and novel_row and novel_row.get("default_cover_style"):
+        cover_style = novel_row["default_cover_style"]
+        log.info("cover_style_from_novel_default", novel_id=novel_id, style=cover_style)
+
+    # Ancora de serie (paleta + luz): se ja existe e foi construida pro mesmo
+    # estilo efetivo, injeta no prompt; senao, esta capa vai ESTABELECE-la (a
+    # ancora e extraida da imagem desta capa, depois de gerada).
+    effective_style = cover_style or None
+    existing_anchor = novel_row.get("series_palette") if novel_row else None
+    anchor_style = (novel_row.get("series_anchor_style") if novel_row else None) or None
+    anchor_fresh = bool(existing_anchor) and anchor_style == effective_style
+    series_block = existing_anchor if anchor_fresh else None
+    must_establish = not anchor_fresh
 
     style_override = style_prompt(cover_style)
     client = genai.Client(api_key=_resolve_api_key())
@@ -481,10 +571,20 @@ async def generate_or_cache_cover(
         glossary=glossary,
         style_hint=style_override,
     )
-    prompt = _build_image_prompt(novel_meta, volume_title, brief, style_override)
+    prompt = _build_image_prompt(novel_meta, volume_title, brief, style_override, series_block)
     raw_bytes, raw_mime = await _generate_image_bytes(
         client=client, image_model=image_model, prompt=prompt, novel_id=novel_id,
     )
+
+    # 1a capa (ou apos troca de estilo): ESTABELECE a ancora a partir desta imagem
+    # crua e re-embute o bloco no prompt salvo (string, custo zero) pra regerar essa
+    # capa manter a coleção. A imagem ja gerada NAO e refeita (ela define a ancora).
+    if must_establish:
+        series_block = _extract_series_anchor(raw_bytes)
+        ChapterCache().set_series_anchor(novel_id, series_block, effective_style)
+        prompt = _build_image_prompt(novel_meta, volume_title, brief, style_override, series_block)
+        log.info("series_anchor_established", novel_id=novel_id, anchor=series_block[:120])
+
     # Composite tipografia POR CIMA (Gemini Image erra texto — typos, letras
     # tortas). Fica salvo no cache ja com o titulo aplicado, entao a capa
     # servida pro EPUB ja vem completa.
@@ -588,9 +688,13 @@ async def regenerate_cover_art(
     if novel is None:
         raise CoverGenError("novel da capa nao encontrada")
 
+    # Re-alinha com a coleção: se a novel ja tem ancora de serie e o prompt salvo
+    # (capa antiga) ainda nao tinha o bloco, injeta agora — sem re-derivar (custo zero).
+    prompt = _ensure_series_block(row["prompt"], novel.get("series_palette"))
+
     client = genai.Client(api_key=_resolve_api_key())
     raw_bytes, raw_mime = await _generate_image_bytes(
-        client=client, image_model=image_model, prompt=row["prompt"],
+        client=client, image_model=image_model, prompt=prompt,
         novel_id=row["novel_id"],
     )
     final_bytes, final_mime = _composite_title_overlay(
@@ -605,7 +709,7 @@ async def regenerate_cover_art(
         image_data=final_bytes,
         image_data_raw=raw_bytes,
         mime_type=final_mime,
-        prompt=row["prompt"],
+        prompt=prompt,
         model=image_model,
     )
     log.info("cover_art_regenerated", cover_id=cover_id, bytes=len(final_bytes))
