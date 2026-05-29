@@ -70,6 +70,12 @@ function statusLabel(job: JobStatus): string {
  *  por keywords na mensagem da exception do Gemini (finish_reason/block_reason). */
 function classifyFailure(reason: string): { kind: string; hint: string } {
   const r = reason.toLowerCase()
+  if (r.includes('permission_denied') || r.includes('403') || r.includes('denied access')) {
+    return {
+      kind: 'Acesso negado pelo Google (403)',
+      hint: 'O projeto da sua API key foi negado para esta operação. Geração de imagem (capa) geralmente exige um projeto Google Cloud com FATURAMENTO habilitado — o free tier costuma cobrir só texto (a tradução continua funcionando). Habilite billing no projeto da key, ou gere uma key nova num projeto com billing em aistudio.google.com/apikey. Se o projeto foi sinalizado por uso intenso, contate o support do Google.'
+    }
+  }
   if (r.includes('safety') || (r.includes('block_reason') && !r.includes('block_reason=none'))) {
     return {
       kind: 'Bloqueado por filtro de conteúdo (hard guardrail)',
