@@ -14,7 +14,9 @@ function App(): React.JSX.Element {
   // Default 'about' — primeira impressao do app. User navega pra 'new' depois.
   const [view, setView] = useState<View>('about')
   const [selectedNovelId, setSelectedNovelId] = useState<number | null>(null)
-  const [prefilledUrl, setPrefilledUrl] = useState<string | null>(null)
+  // Prefill da Nova captura: URL + estilo de capa travado da novel (pra "Capturar
+  // mais" manter a coleção sem depender do preview rodar).
+  const [prefill, setPrefill] = useState<{ url: string; coverStyle: string | null } | null>(null)
   const [glossaryNovelId, setGlossaryNovelId] = useState<number | null>(null)
 
   function navigate(v: View): void {
@@ -22,13 +24,13 @@ function App(): React.JSX.Element {
     // muda de tela: limpa drill-down dentro da Biblioteca
     if (v !== 'library') setSelectedNovelId(null)
     // limpa prefill ao sair de Nova captura
-    if (v !== 'new') setPrefilledUrl(null)
+    if (v !== 'new') setPrefill(null)
     // glossario filter por novel so vale quando voce abre via NovelDetail
     if (v !== 'glossary') setGlossaryNovelId(null)
   }
 
-  function openCaptureWithUrl(url: string): void {
-    setPrefilledUrl(url)
+  function openCaptureWithUrl(url: string, coverStyle: string | null): void {
+    setPrefill({ url, coverStyle })
     setSelectedNovelId(null)
     setView('new')
   }
@@ -47,8 +49,9 @@ function App(): React.JSX.Element {
             {view === 'about' && <About />}
             {view === 'new' && (
               <NewCapture
-                prefilledUrl={prefilledUrl}
-                onUsedPrefill={() => setPrefilledUrl(null)}
+                prefilledUrl={prefill?.url ?? null}
+                prefilledCoverStyle={prefill?.coverStyle ?? null}
+                onUsedPrefill={() => setPrefill(null)}
               />
             )}
             {view === 'downloads' && <Downloads />}

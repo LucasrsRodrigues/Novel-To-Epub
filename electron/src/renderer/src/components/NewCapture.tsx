@@ -31,22 +31,14 @@ function statusLabel(job: JobStatus): string {
 
 export function NewCapture({
   prefilledUrl,
+  prefilledCoverStyle,
   onUsedPrefill
 }: {
   prefilledUrl?: string | null
+  prefilledCoverStyle?: string | null
   onUsedPrefill?: () => void
 } = {}): React.JSX.Element {
   const [url, setUrl] = useState('')
-
-  // Quando a app injeta uma URL (ex: clique em "Capturar mais" no NovelDetail),
-  // pré-preenche o campo e limpa o flag pra não re-aplicar.
-  useEffect(() => {
-    if (prefilledUrl) {
-      setUrl(prefilledUrl)
-      onUsedPrefill?.()
-    }
-  }, [prefilledUrl, onUsedPrefill])
-
   const [volumeTitle, setVolumeTitle] = useState('')
   const [start, setStart] = useState('1')
   const [end, setEnd] = useState('')
@@ -70,6 +62,20 @@ export function NewCapture({
       .then((s) => setEnabledStyles(s.cover_styles_enabled ?? []))
       .catch(() => {})
   }, [])
+
+  // Prefill vindo de "Capturar mais capítulos" (NovelDetail): pré-preenche a URL
+  // e, se a novel tem estilo de capa travado, JÁ liga a capa IA + pré-seleciona o
+  // estilo — assim o novo volume mantém a coleção mesmo sem rodar o preview.
+  useEffect(() => {
+    if (!prefilledUrl) return
+    setUrl(prefilledUrl)
+    if (prefilledCoverStyle) {
+      setCoverStyle(prefilledCoverStyle)
+      setAiCover(true)
+    }
+    onUsedPrefill?.()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [prefilledUrl, prefilledCoverStyle])
 
   // Opções do seletor: estilos habilitados (ou todos os 24 se nenhum curado, pra
   // sempre ser usável). Garante que o default salvo apareça mesmo fora da curadoria.
@@ -150,7 +156,9 @@ export function NewCapture({
     setPreview(null)
     setPreviewErr(null)
     setSelectedVolumeIdx(-1)
-    setCoverStyle('') // novel mudou → descarta default pré-selecionado antigo
+    // NÃO zera o coverStyle aqui — senão apagaria o estilo vindo do "Capturar
+    // mais" (que seta a URL programaticamente). Edição MANUAL da URL zera no
+    // onChange do input.
     previewReqRef.current++
     if (!sourceHasVolumes) return
     const trimmed = url.trim()
@@ -223,7 +231,10 @@ export function NewCapture({
               id="url"
               placeholder="https://novelbin.me/novel-book/... ou https://novelmania.com.br/novels/..."
               value={url}
-              onChange={(e) => setUrl(e.target.value)}
+              onChange={(e) => {
+                setUrl(e.target.value)
+                setCoverStyle('') // edição manual da URL descarta estilo pré-selecionado
+              }}
               required
             />
             {previewLoading && (

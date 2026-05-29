@@ -44,7 +44,7 @@ export function NovelDetail({
 }: {
   novelId: number
   onBack: () => void
-  onCaptureMore: (url: string) => void
+  onCaptureMore: (url: string, coverStyle: string | null) => void
   onOpenGlossary: (novelId: number) => void
 }): React.JSX.Element {
   const [novel, setNovel] = useState<NovelDetailT | null>(null)
@@ -231,7 +231,10 @@ export function NovelDetail({
             </p>
           )}
           <div className="flex flex-wrap items-center gap-2 pt-2">
-            <Button onClick={() => onCaptureMore(novel.source_url)} size="sm">
+            <Button
+              onClick={() => onCaptureMore(novel.source_url, novel.default_cover_style)}
+              size="sm"
+            >
               <Plus className="size-3.5" /> Capturar mais capítulos
             </Button>
             <Button variant="outline" size="sm" asChild>
