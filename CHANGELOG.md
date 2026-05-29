@@ -7,6 +7,29 @@ o versionamento segue [SemVer](https://semver.org/lang/pt-BR/).
 
 ## [Unreleased]
 
+## [1.0.12] — 2026-05-29
+
+### Added
+
+- **Estilos de arte para a capa por IA** — catálogo de 24 presets (Dark Fantasy,
+  Anime Light Novel, Cyberpunk Neon, Art Deco Fantasy, Painterly, Minimalist
+  Premium, Cel-Shading, Steampunk, Noir, entre outros) em
+  [cover_styles.py](backend/app/image_gen/cover_styles.py). Cada estilo injeta uma
+  direção de arte específica no prompt do Gemini Image e guia a cena do brief.
+- **Curadoria de estilos nas Configurações** — novo card "Estilo de capa (IA)"
+  com checkboxes pra escolher quais estilos aparecem no dropdown. Persistido em
+  `cover_styles_enabled`.
+- **Dropdown inteligente no botão de capa** ([NovelDetail.tsx](electron/src/renderer/src/components/NovelDetail.tsx)):
+  nenhum estilo marcado → automático (IA decide); um marcado → vai direto nele;
+  dois ou mais → menu pra escolher na hora (+ opção "Automático").
+
+### Changed
+
+- **`generate_or_cache_cover` aceita `cover_style`** — o estilo escolhido
+  sobrescreve o `ART DIRECTION` do prompt; o modo automático mantém o
+  comportamento anterior. O parâmetro flui por `DownloadRequest` → `Job` →
+  `download_to_epub`, e os endpoints de regerar capa aceitam o estilo no corpo.
+
 ## [1.0.11] — 2026-05-27
 
 ### Added
