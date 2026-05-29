@@ -36,6 +36,7 @@ class Job:
     translate_to: str | None = None
     volume_title: str | None = None
     ai_cover: bool = False
+    cover_style: str | None = None  # id do estilo de arte (None = IA decide)
     # Volume a remover (registro + .epub) depois que este job gerar o novo .epub
     # com sucesso. Usado pra "traduzir no lugar" (substitui o original sem traducao).
     replace_volume_id: int | None = None
@@ -126,6 +127,7 @@ class JobManager:
             translate_to=req.translate_to,
             volume_title=req.volume_title,
             ai_cover=req.ai_cover,
+            cover_style=req.cover_style,
             replace_volume_id=req.replace_volume_id,
         )
         self._jobs[job.id] = job
@@ -254,6 +256,7 @@ class JobManager:
             translate_to=job.translate_to,
             volume_title=job.volume_title,
             ai_cover=job.ai_cover,
+            cover_style=job.cover_style,
             on_complete=on_complete,
         )
         job.output_path = str(path)

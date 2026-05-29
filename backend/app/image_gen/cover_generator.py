@@ -24,6 +24,7 @@ from PIL import Image, ImageDraw, ImageFont
 from pydantic import BaseModel, Field
 
 from app.db.cover_cache import CoverCache
+from app.image_gen.cover_styles import style_prompt
 from app.db.settings_store import SettingsStore
 from app.db.usage_store import UsageStore
 from app.logging_conf import get_logger
@@ -269,9 +270,18 @@ def _build_brief_user_prompt(
     volume_title: str | None,
     excerpts: list[_Excerpt],
     glossary: list[GlossaryEntry],
+    style_hint: str | None = None,
 ) -> str:
     excerpts_block = "\n\n".join(
         f"=== Capitulo {e.index} ===\n{e.text}" for e in excerpts
+    )
+    # Quando o usuario escolheu um estilo de arte fixo, a `style` do brief sera
+    # ignorada (o prompt de imagem usa o estilo escolhido). Mas ainda avisamos o
+    # modelo pra que a CENA combine com a estetica alvo.
+    style_block = (
+        f"\nESTILO DE ARTE ALVO (a cena deve combinar com esta estetica):\n{style_hint}\n"
+        if style_hint
+        else ""
     )
     return f"""NOVEL: {novel_meta.title}
 VOLUME: {volume_title or '(volume sem titulo definido)'}
@@ -283,7 +293,7 @@ GLOSSARIO (personagens / conceitos / termos chave):
 
 EXCERTOS DOS CAPITULOS COBERTOS:
 {excerpts_block}
-
+{style_block}
 Produza o JSON com `scene` + `style`."""
 
 
@@ -291,22 +301,31 @@ def _build_image_prompt(
     novel_meta: NovelMeta,
     volume_title: str | None,
     brief: _Brief,
+    style_override: str | None = None,
 ) -> str:
     title_clause = (
         f"for the volume \"{volume_title}\" of the web novel series \"{novel_meta.title}\""
         if volume_title
         else f"for the web novel \"{novel_meta.title}\""
     )
+    # Estilo escolhido pelo usuario domina a direcao de arte. Sem escolha, usa a
+    # `style` que o modelo de texto inferiu do conteudo (comportamento padrao).
+    art_direction = style_override or brief.style
+    # A linha "Painterly digital illustration. Cinematic..." e opinativa demais e
+    # briga com estilos como Flat/Minimalist/Cyberpunk — so a aplicamos no modo
+    # automatico. Com estilo escolhido, o proprio `style_override` manda no look.
+    medium_line = (
+        "" if style_override else "\n- Painterly digital illustration. Cinematic, atmospheric lighting."
+    )
     return f"""A dramatic book cover illustration {title_clause}.
 
 SCENE TO DEPICT: {brief.scene}
 
-ART DIRECTION: {brief.style}
+ART DIRECTION: {art_direction}
 
 COMPOSITION:
 - Portrait orientation, 2:3 aspect ratio (vertical book cover).
-- One strong focal subject. Rule of thirds composition.
-- Painterly digital illustration. Cinematic, atmospheric lighting.
+- One strong focal subject. Rule of thirds composition.{medium_line}
 - Rich detail without clutter.
 
 STRICTLY DO NOT INCLUDE:
@@ -324,9 +343,12 @@ async def _build_visual_brief(
     volume_title: str | None,
     chapters: list[ChapterContent],
     glossary: list[GlossaryEntry],
+    style_hint: str | None = None,
 ) -> _Brief:
     excerpts = _sample_chapters(chapters)
-    user_prompt = _build_brief_user_prompt(novel_meta, volume_title, excerpts, glossary)
+    user_prompt = _build_brief_user_prompt(
+        novel_meta, volume_title, excerpts, glossary, style_hint
+    )
     config = types.GenerateContentConfig(
         system_instruction=_BRIEF_SYSTEM,
         response_mime_type="application/json",
@@ -414,16 +436,21 @@ async def generate_or_cache_cover(
     volume_title: str | None,
     chapters: list[ChapterContent],
     glossary: list[GlossaryEntry],
+    cover_style: str | None = None,
     text_model: str = "gemini-2.5-flash",
     image_model: str = "gemini-2.5-flash-image",
 ) -> tuple[bytes, str]:
-    """Retorna ``(image_bytes, mime)``. Usa cache se existir, senao gera + salva."""
+    """Retorna ``(image_bytes, mime)``. Usa cache se existir, senao gera + salva.
+
+    ``cover_style`` e o id de um estilo de arte (ver ``cover_styles.COVER_STYLES``);
+    None/desconhecido = a IA decide o estilo a partir do conteudo (padrao)."""
     cache = CoverCache()
     cached = cache.get(novel_id, volume_title)
     if cached is not None:
         log.info("cover_cache_hit", novel_id=novel_id, volume_title=volume_title)
         return cached
 
+    style_override = style_prompt(cover_style)
     client = genai.Client(api_key=_resolve_api_key())
     brief = await _build_visual_brief(
         client=client,
@@ -433,8 +460,9 @@ async def generate_or_cache_cover(
         volume_title=volume_title,
         chapters=chapters,
         glossary=glossary,
+        style_hint=style_override,
     )
-    prompt = _build_image_prompt(novel_meta, volume_title, brief)
+    prompt = _build_image_prompt(novel_meta, volume_title, brief, style_override)
     raw_bytes, raw_mime = await _generate_image_bytes(
         client=client, image_model=image_model, prompt=prompt, novel_id=novel_id,
     )

@@ -15,7 +15,7 @@ export type JobStatusKind = 'queued' | 'running' | 'done' | 'error' | 'cancelled
 export interface TranslationFailure {
   chapter: number
   title: string
-  reason: string  // mensagem da exception (inclui finish_reason/block_reason p/ Gemini)
+  reason: string // mensagem da exception (inclui finish_reason/block_reason p/ Gemini)
 }
 
 export interface JobStatus {
@@ -28,16 +28,16 @@ export interface JobStatus {
   volume_title: string | null
   ai_cover: boolean
   status: JobStatusKind
-  stage: string  // idle | download | translate | cover
+  stage: string // idle | download | translate | cover
   done: number
   total: number
   title: string | null
   current: string | null
   output_path: string | null
   error: string | null
-  translation_failed: number  // caps que ficaram em EN (falha)
-  translation_failures: TranslationFailure[]  // detalhe por cap (preenchido qdo job termina)
-  volume_id: number | null  // id do volume persistido (None enquanto job nao terminou)
+  translation_failed: number // caps que ficaram em EN (falha)
+  translation_failures: TranslationFailure[] // detalhe por cap (preenchido qdo job termina)
+  volume_id: number | null // id do volume persistido (None enquanto job nao terminou)
   created_at: string
   updated_at: string
 }
@@ -50,6 +50,8 @@ export interface DownloadRequest {
   translate_to?: string | null
   volume_title?: string | null
   ai_cover?: boolean
+  // Id do estilo de arte da capa (ver lib/coverStyles). undefined/null = IA decide.
+  cover_style?: string | null
   // Quando setado, o volume com este id é removido (registro + .epub) assim que
   // o novo .epub nascer ok. Usado p/ "traduzir no lugar" (substitui o original).
   replace_volume_id?: number | null
@@ -73,7 +75,7 @@ export interface NovelPreview {
   cover_url: string | null
   description: string | null
   total_chapters: number
-  volumes: VolumePreview[]  // [] se adapter não detecta volumes
+  volumes: VolumePreview[] // [] se adapter não detecta volumes
 }
 
 export interface NovelSummary {
@@ -112,6 +114,7 @@ export interface AppSettingsView {
   cerebras_model: string | null
   default_models: Record<string, string>
   cascade_order: string[]
+  cover_styles_enabled: string[]
 }
 
 export interface SettingsUpdate {
@@ -132,6 +135,7 @@ export interface SettingsUpdate {
   openrouter_model?: string | null
   cerebras_model?: string | null
   cascade_order?: string[]
+  cover_styles_enabled?: string[]
 }
 
 export interface ChapterSummary {
@@ -139,7 +143,7 @@ export interface ChapterSummary {
   title_en: string
   title_pt: string | null
   has_translation: boolean
-  translation_source: string | null  // 'manual' | 'gemini-...' | null
+  translation_source: string | null // 'manual' | 'gemini-...' | null
 }
 
 export interface ChapterDetail {
@@ -216,7 +220,7 @@ export interface RecentUsageInfo {
   novel_id: number | null
   chapter_index: number | null
   cost_usd: number
-  error_message: string | null  // null = sucesso; preenchido = falha do provider
+  error_message: string | null // null = sucesso; preenchido = falha do provider
   created_at: string
 }
 
@@ -271,24 +275,29 @@ export const api = {
     http<JobStatus>(`/api/downloads/${id}/cancel`, { method: 'POST' }),
   sendToKindle: (id: string) =>
     http<{ status: string; to: string }>(`/api/downloads/${id}/kindle`, { method: 'POST' }),
-  regenerateCover: (id: string) =>
-    http<JobStatus>(`/api/downloads/${id}/regenerate-cover`, { method: 'POST' }),
+  regenerateCover: (id: string, coverStyle?: string | null) =>
+    http<JobStatus>(`/api/downloads/${id}/regenerate-cover`, {
+      method: 'POST',
+      body: JSON.stringify({ cover_style: coverStyle ?? null })
+    }),
   library: () => http<NovelSummary[]>('/api/library'),
   getNovelDetail: (novelId: number) => http<NovelDetail>(`/api/library/${novelId}`),
-  getNovelVolumes: (novelId: number) =>
-    http<VolumeOut[]>(`/api/library/${novelId}/volumes`),
-  getGlossary: (novelId: number) =>
-    http<GlossaryEntry[]>(`/api/library/${novelId}/glossary`),
+  getNovelVolumes: (novelId: number) => http<VolumeOut[]>(`/api/library/${novelId}/volumes`),
+  getGlossary: (novelId: number) => http<GlossaryEntry[]>(`/api/library/${novelId}/glossary`),
   volumeFileUrl: (id: number) => `${API_BASE}/api/volumes/${id}/file`,
   sendVolumeToKindle: (id: number) =>
     http<{ status: string; to: string }>(`/api/volumes/${id}/kindle`, { method: 'POST' }),
-  regenerateVolumeCover: (id: number) =>
-    http<JobStatus>(`/api/volumes/${id}/regenerate-cover`, { method: 'POST' }),
-  deleteVolume: (id: number) =>
-    http<void>(`/api/volumes/${id}`, { method: 'DELETE' }),
-  rebuildVolume: (id: number) =>
-    http<VolumeOut>(`/api/volumes/${id}/rebuild`, { method: 'POST' }),
-  listChapters: (novelId: number, opts: { language?: string; start?: number; end?: number } = {}) => {
+  regenerateVolumeCover: (id: number, coverStyle?: string | null) =>
+    http<JobStatus>(`/api/volumes/${id}/regenerate-cover`, {
+      method: 'POST',
+      body: JSON.stringify({ cover_style: coverStyle ?? null })
+    }),
+  deleteVolume: (id: number) => http<void>(`/api/volumes/${id}`, { method: 'DELETE' }),
+  rebuildVolume: (id: number) => http<VolumeOut>(`/api/volumes/${id}/rebuild`, { method: 'POST' }),
+  listChapters: (
+    novelId: number,
+    opts: { language?: string; start?: number; end?: number } = {}
+  ) => {
     const q = new URLSearchParams()
     if (opts.language) q.set('language', opts.language)
     if (opts.start != null) q.set('start', String(opts.start))
@@ -301,21 +310,26 @@ export const api = {
     return http<ChapterDetail>(`/api/library/${novelId}/chapters/${idx}${qs}`)
   },
   saveChapterTranslation: (
-    novelId: number, idx: number, body: { title: string; html: string; language: string }
+    novelId: number,
+    idx: number,
+    body: { title: string; html: string; language: string }
   ) =>
     http<ChapterDetail>(`/api/library/${novelId}/chapters/${idx}/translation`, {
-      method: 'PUT', body: JSON.stringify(body)
+      method: 'PUT',
+      body: JSON.stringify(body)
     }),
   deleteChapterTranslation: (novelId: number, idx: number, language: string) =>
-    http<void>(`/api/library/${novelId}/chapters/${idx}/translation?language=${encodeURIComponent(language)}`, {
-      method: 'DELETE'
-    }),
+    http<void>(
+      `/api/library/${novelId}/chapters/${idx}/translation?language=${encodeURIComponent(language)}`,
+      {
+        method: 'DELETE'
+      }
+    ),
   usageSummary: () => http<UsageSummary>('/api/usage/summary'),
   usageByDay: (days = 30) => http<UsageDay[]>(`/api/usage/by-day?days=${days}`),
   usageByNovel: () => http<UsageByNovel[]>('/api/usage/by-novel'),
   usageByProvider: () => http<UsageByProvider[]>('/api/usage/by-provider'),
-  translationDebugStatus: () =>
-    http<TranslationDebugStatus>('/api/debug/translation-status'),
+  translationDebugStatus: () => http<TranslationDebugStatus>('/api/debug/translation-status'),
   resetVolumeTranslatorPin: (volumeId: number) =>
     http<void>(`/api/volumes/${volumeId}/translator-pin`, { method: 'DELETE' }),
   getSettings: () => http<AppSettingsView>('/api/settings'),

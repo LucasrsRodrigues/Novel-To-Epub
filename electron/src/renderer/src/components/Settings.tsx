@@ -1,10 +1,20 @@
 import { useEffect, useState } from 'react'
 import {
-  Activity, ArrowDown, ArrowUp, CircleAlert, CircleCheck, Languages, Layers,
-  Loader2, Mail, Save
+  Activity,
+  ArrowDown,
+  ArrowUp,
+  CircleAlert,
+  CircleCheck,
+  Languages,
+  Layers,
+  Loader2,
+  Mail,
+  Palette,
+  Save
 } from 'lucide-react'
 import { TranslationDiagnostic } from '@renderer/components/TranslationDiagnostic'
 import { api, type SettingsUpdate } from '@renderer/lib/api'
+import { COVER_STYLES } from '@renderer/lib/coverStyles'
 import { Button } from '@renderer/components/ui/button'
 import { Input } from '@renderer/components/ui/input'
 import { Label } from '@renderer/components/ui/label'
@@ -27,9 +37,7 @@ function SectionHeader({
         <Icon className="size-5 text-[var(--stamp-red)]" />
         {title}
       </h3>
-      <p className="font-sans text-[13px] leading-relaxed text-[var(--ink-500)]">
-        {description}
-      </p>
+      <p className="font-sans text-[13px] leading-relaxed text-[var(--ink-500)]">{description}</p>
     </div>
   )
 }
@@ -73,8 +81,13 @@ export function Settings(): React.JSX.Element {
     gemini: 'gemini-2.5-flash'
   })
   const [cascadeOrder, setCascadeOrder] = useState<string[]>([
-    'groq', 'openrouter', 'cerebras', 'gemini'
+    'groq',
+    'openrouter',
+    'cerebras',
+    'gemini'
   ])
+  // Estilos de capa habilitados no dropdown (ids). Vazio = capa sempre automática.
+  const [coverStyles, setCoverStyles] = useState<string[]>([])
 
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
@@ -105,10 +118,9 @@ export function Settings(): React.JSX.Element {
         if (cfg.cascade_order && cfg.cascade_order.length > 0) {
           setCascadeOrder(cfg.cascade_order)
         }
+        setCoverStyles(cfg.cover_styles_enabled ?? [])
       })
-      .catch((err) =>
-        setMsg({ ok: false, text: err instanceof Error ? err.message : String(err) })
-      )
+      .catch((err) => setMsg({ ok: false, text: err instanceof Error ? err.message : String(err) }))
       .finally(() => setLoading(false))
   }, [])
 
@@ -136,18 +148,23 @@ export function Settings(): React.JSX.Element {
     body.openrouter_model = openrouterModel.trim() || null
     body.cerebras_model = cerebrasModel.trim() || null
     body.cascade_order = cascadeOrder
+    body.cover_styles_enabled = coverStyles
     try {
       const cfg = await api.updateSettings(body)
       setPwSet(cfg.smtp_password_set)
       setPassword('')
       setGeminiKeySet(cfg.gemini_api_key_set)
       setGeminiKey('')
-      setGroqKeySet(cfg.groq_api_key_set); setGroqKey('')
-      setOpenrouterKeySet(cfg.openrouter_api_key_set); setOpenrouterKey('')
-      setCerebrasKeySet(cfg.cerebras_api_key_set); setCerebrasKey('')
+      setGroqKeySet(cfg.groq_api_key_set)
+      setGroqKey('')
+      setOpenrouterKeySet(cfg.openrouter_api_key_set)
+      setOpenrouterKey('')
+      setCerebrasKeySet(cfg.cerebras_api_key_set)
+      setCerebrasKey('')
       if (cfg.cascade_order && cfg.cascade_order.length > 0) {
         setCascadeOrder(cfg.cascade_order)
       }
+      setCoverStyles(cfg.cover_styles_enabled ?? [])
       setMsg({ ok: true, text: 'configurações salvas' })
     } catch (err) {
       setMsg({ ok: false, text: err instanceof Error ? err.message : String(err) })
@@ -313,27 +330,39 @@ export function Settings(): React.JSX.Element {
           />
 
           <ProviderKeyRow
-            label="Groq" provider="groq"
+            label="Groq"
+            provider="groq"
             url="https://console.groq.com/keys"
             note="Default: llama-3.3-70b-versatile (1000 req/dia gratis, ultra rápido)"
-            keySet={groqKeySet} value={groqKey} onChange={setGroqKey}
-            model={groqModel} onModelChange={setGroqModel}
+            keySet={groqKeySet}
+            value={groqKey}
+            onChange={setGroqKey}
+            model={groqModel}
+            onModelChange={setGroqModel}
             defaultModel={defaultModels.groq}
           />
           <ProviderKeyRow
-            label="OpenRouter" provider="openrouter"
+            label="OpenRouter"
+            provider="openrouter"
             url="https://openrouter.ai/keys"
             note="Default: Qwen 2.5 72B :free (200/dia, 1000 com $5 crédito)"
-            keySet={openrouterKeySet} value={openrouterKey} onChange={setOpenrouterKey}
-            model={openrouterModel} onModelChange={setOpenrouterModel}
+            keySet={openrouterKeySet}
+            value={openrouterKey}
+            onChange={setOpenrouterKey}
+            model={openrouterModel}
+            onModelChange={setOpenrouterModel}
             defaultModel={defaultModels.openrouter}
           />
           <ProviderKeyRow
-            label="Cerebras" provider="cerebras"
+            label="Cerebras"
+            provider="cerebras"
             url="https://cloud.cerebras.ai/platform"
             note="Default: gpt-oss-120b (substituto do llama-3.3-70b que foi decomissionado)"
-            keySet={cerebrasKeySet} value={cerebrasKey} onChange={setCerebrasKey}
-            model={cerebrasModel} onModelChange={setCerebrasModel}
+            keySet={cerebrasKeySet}
+            value={cerebrasKey}
+            onChange={setCerebrasKey}
+            model={cerebrasModel}
+            onModelChange={setCerebrasModel}
             defaultModel={defaultModels.cerebras}
           />
 
@@ -410,6 +439,44 @@ export function Settings(): React.JSX.Element {
           </div>
         </Card>
 
+        <Card>
+          <SectionHeader
+            icon={Palette}
+            title="Estilo de capa (IA)"
+            description="Escolha os estilos de arte que aparecem ao gerar capa por IA. Nenhum marcado = a IA decide sozinha (automático). Marque vários pra escolher na hora; marque só um e o botão de capa já vai direto nele."
+          />
+
+          <div className="grid grid-cols-1 gap-x-4 gap-y-2 pt-2 sm:grid-cols-2">
+            {COVER_STYLES.map((style) => {
+              const checked = coverStyles.includes(style.id)
+              return (
+                <label
+                  key={style.id}
+                  className="font-sans flex cursor-pointer items-center gap-2.5 text-[13px] text-[var(--ink-700)]"
+                >
+                  <Checkbox
+                    checked={checked}
+                    onCheckedChange={(v) =>
+                      setCoverStyles((prev) =>
+                        v === true ? [...prev, style.id] : prev.filter((id) => id !== style.id)
+                      )
+                    }
+                  />
+                  {style.label}
+                </label>
+              )
+            })}
+          </div>
+
+          <p className="font-sans pt-3 text-[12px] text-[var(--ink-500)]">
+            {coverStyles.length === 0
+              ? 'Nenhum estilo fixo — toda capa nasce no modo automático.'
+              : coverStyles.length === 1
+                ? 'Um estilo marcado — o botão de capa usa ele direto, sem perguntar.'
+                : `${coverStyles.length} estilos — o botão de capa abre um menu pra escolher.`}
+          </p>
+        </Card>
+
         <div className="flex items-center gap-4 pt-2">
           <Button type="submit" variant="default" size="lg" disabled={saving}>
             {saving ? <Loader2 className="size-4 animate-spin" /> : <Save className="size-4" />}
@@ -433,10 +500,17 @@ export function Settings(): React.JSX.Element {
   )
 }
 
-
 function ProviderKeyRow({
-  label, provider, url, note, keySet, value, onChange,
-  model, onModelChange, defaultModel
+  label,
+  provider,
+  url,
+  note,
+  keySet,
+  value,
+  onChange,
+  model,
+  onModelChange,
+  defaultModel
 }: {
   label: string
   provider: string
@@ -484,8 +558,8 @@ function ProviderKeyRow({
           className="mt-1.5 font-mono text-[12px]"
         />
         <p className="font-sans mt-1 text-[10px] text-[var(--ink-400)]">
-          Em branco = usa default <code className="font-mono">{defaultModel}</code>. Útil pra
-          testar outro modelo ou quando default for descontinuado.
+          Em branco = usa default <code className="font-mono">{defaultModel}</code>. Útil pra testar
+          outro modelo ou quando default for descontinuado.
         </p>
       </details>
     </div>

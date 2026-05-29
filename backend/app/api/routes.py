@@ -20,6 +20,7 @@ from app.api.schemas import (
     NovelPreviewOut,
     NovelPreviewRequest,
     NovelSummary,
+    RegenerateCoverRequest,
     VolumePreview,
     SettingsOut,
     SettingsUpdate,
@@ -61,6 +62,12 @@ def _settings_out(cfg: dict) -> SettingsOut:
         if isinstance(raw_order, str)
         else list(raw_order)
     )
+    raw_styles = cfg.get("cover_styles_enabled") or ""
+    cover_styles = (
+        [s.strip() for s in raw_styles.split(",") if s.strip()]
+        if isinstance(raw_styles, str)
+        else list(raw_styles)
+    )
     return SettingsOut(
         smtp_host=cfg["smtp_host"],
         smtp_port=cfg["smtp_port"],
@@ -80,6 +87,7 @@ def _settings_out(cfg: dict) -> SettingsOut:
         cerebras_model=cfg.get("cerebras_model") or None,
         default_models=_provider_defaults(),
         cascade_order=order,
+        cover_styles_enabled=cover_styles,
     )
 
 
@@ -296,7 +304,9 @@ async def rebuild_volume(volume_id: int) -> dict:
     status_code=201,
 )
 def regenerate_volume_cover(
-    volume_id: int, jobs: JobManager = Depends(get_jobs)
+    volume_id: int,
+    body: RegenerateCoverRequest | None = None,
+    jobs: JobManager = Depends(get_jobs),
 ) -> JobStatus:
     """Gera (ou regera) a capa por IA do volume e re-enqueue.
 
@@ -320,6 +330,7 @@ def regenerate_volume_cover(
             translate_to=vol["translate_to"],
             volume_title=vol["volume_title"],
             ai_cover=True,
+            cover_style=body.cover_style if body else None,
         )
     )
     return new_job.to_status()
@@ -566,13 +577,18 @@ def update_settings(body: SettingsUpdate) -> SettingsOut:
     # cascade_order chega como lista no JSON, serializa pra CSV no DB
     if "cascade_order" in payload and isinstance(payload["cascade_order"], list):
         payload["cascade_order"] = ",".join(payload["cascade_order"])
+    # cover_styles_enabled idem: lista de ids → CSV
+    if "cover_styles_enabled" in payload and isinstance(payload["cover_styles_enabled"], list):
+        payload["cover_styles_enabled"] = ",".join(payload["cover_styles_enabled"])
     cfg = SettingsStore().update(payload)
     return _settings_out(cfg)
 
 
 @router.post("/downloads/{job_id}/regenerate-cover", response_model=JobStatus, status_code=201)
 def regenerate_cover(
-    job_id: str, jobs: JobManager = Depends(get_jobs)
+    job_id: str,
+    body: RegenerateCoverRequest | None = None,
+    jobs: JobManager = Depends(get_jobs),
 ) -> JobStatus:
     """Gera (ou regera) a capa por IA e re-enqueue o mesmo job.
 
@@ -603,6 +619,7 @@ def regenerate_cover(
             translate_to=job.translate_to,
             volume_title=job.volume_title,
             ai_cover=True,
+            cover_style=body.cover_style if body else None,
         )
     )
     return new_job.to_status()

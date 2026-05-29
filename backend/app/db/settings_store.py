@@ -24,6 +24,7 @@ _FIELDS = (
     "openrouter_model",
     "cerebras_model",
     "cascade_order",
+    "cover_styles_enabled",
 )
 
 

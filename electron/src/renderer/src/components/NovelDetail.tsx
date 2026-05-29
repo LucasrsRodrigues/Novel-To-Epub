@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import {
   BookOpen,
+  ChevronDown,
   ChevronLeft,
   Download,
   ExternalLink,
@@ -22,6 +23,7 @@ import {
   type VolumeOut
 } from '@renderer/lib/api'
 import { useJobs } from '@renderer/context/JobsContext'
+import { COVER_STYLES } from '@renderer/lib/coverStyles'
 import { Button } from '@renderer/components/ui/button'
 import { Folio } from '@renderer/components/decorative/Folio'
 import { Ribbon } from '@renderer/components/decorative/Ribbon'
@@ -46,6 +48,9 @@ export function NovelDetail({
   const [editorVolume, setEditorVolume] = useState<VolumeOut | null>(null)
   // Idioma-alvo configurado — usado pelo botão "Traduzir" do volume.
   const [targetLang, setTargetLang] = useState('pt-BR')
+  // Estilos de capa habilitados nas Configurações (ids). Definem o comportamento
+  // do botão de capa: 0 = automático, 1 = direto, 2+ = menu de escolha.
+  const [enabledStyles, setEnabledStyles] = useState<string[]>([])
   const { jobs } = useJobs()
 
   useEffect(() => {
@@ -63,7 +68,10 @@ export function NovelDetail({
       .catch(() => setPersistedVolumes([]))
     api
       .getSettings()
-      .then((s) => setTargetLang(s.target_language || 'pt-BR'))
+      .then((s) => {
+        setTargetLang(s.target_language || 'pt-BR')
+        setEnabledStyles(s.cover_styles_enabled ?? [])
+      })
       .catch(() => {})
   }, [novelId])
 
@@ -78,7 +86,10 @@ export function NovelDetail({
   }, [jobs, novel])
   useEffect(() => {
     if (!novel) return
-    api.getNovelVolumes(novelId).then(setPersistedVolumes).catch(() => {})
+    api
+      .getNovelVolumes(novelId)
+      .then(setPersistedVolumes)
+      .catch(() => {})
   }, [doneJobsKey, novelId, novel])
 
   // Volumes = persistido (DB) + jobs ativos (in-memory) que ainda nao viraram
@@ -89,7 +100,9 @@ export function NovelDetail({
   const volumes = useMemo<DisplayVolume[]>(() => {
     if (!novel) return []
     const persisted: DisplayVolume[] = persistedVolumes.map((v) => ({
-      kind: 'persisted', vol: v, createdAt: v.created_at
+      kind: 'persisted',
+      vol: v,
+      createdAt: v.created_at
     }))
     // Inclui jobs ainda nao concluidos (queued/running) ou que falharam
     // (erro/zero output). Done duplicaria persistido — pula.
@@ -97,9 +110,7 @@ export function NovelDetail({
       .filter((j) => urlsMatch(j.url, novel.source_url))
       .filter((j) => j.status !== 'done')
       .map((j) => ({ kind: 'job' as const, job: j, createdAt: j.created_at }))
-    return [...activeJobs, ...persisted].sort((a, b) =>
-      b.createdAt.localeCompare(a.createdAt)
-    )
+    return [...activeJobs, ...persisted].sort((a, b) => b.createdAt.localeCompare(a.createdAt))
   }, [jobs, novel, persistedVolumes])
 
   const characters = glossary?.filter((e) => e.kind === 'character').slice(0, 6) ?? []
@@ -135,7 +146,10 @@ export function NovelDetail({
           onClose={() => setEditorVolume(null)}
           onTranslationSaved={() => {
             // Refresh lista de volumes (translation_failed pode ter mudado)
-            api.getNovelVolumes(novelId).then(setPersistedVolumes).catch(() => {})
+            api
+              .getNovelVolumes(novelId)
+              .then(setPersistedVolumes)
+              .catch(() => {})
           }}
         />
       )}
@@ -149,7 +163,10 @@ export function NovelDetail({
           {novel.title}
         </h2>
         <p className="font-display text-base italic text-[var(--ink-500)]">
-          {novel.author ?? 'autor desconhecido'} · <span className="font-sans not-italic text-[11px] tracking-[0.16em] uppercase">{novel.source}</span>
+          {novel.author ?? 'autor desconhecido'} ·{' '}
+          <span className="font-sans not-italic text-[11px] tracking-[0.16em] uppercase">
+            {novel.source}
+          </span>
         </p>
       </header>
 
@@ -259,6 +276,7 @@ export function NovelDetail({
                   vol={v.vol}
                   novelId={novelId}
                   targetLang={targetLang}
+                  enabledStyles={enabledStyles}
                   onVolumeUpdated={(updated) =>
                     setPersistedVolumes((prev) =>
                       prev.map((x) => (x.id === updated.id ? updated : x))
@@ -349,11 +367,18 @@ function StatTile({
 }
 
 function PersistedVolumeRow({
-  vol, novelId, targetLang, onVolumeUpdated, onVolumeDeleted, onOpenEditor
+  vol,
+  novelId,
+  targetLang,
+  enabledStyles,
+  onVolumeUpdated,
+  onVolumeDeleted,
+  onOpenEditor
 }: {
   vol: VolumeOut
   novelId: number
   targetLang: string
+  enabledStyles: string[]
   onVolumeUpdated: (v: VolumeOut) => void
   onVolumeDeleted: (id: number) => void
   onOpenEditor: (vol: VolumeOut) => void
@@ -366,7 +391,10 @@ function PersistedVolumeRow({
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [deleting, setDeleting] = useState(false)
   const [sendMsg, setSendMsg] = useState<{ ok: boolean; text: string } | null>(null)
-  void novelId  // referenced no botão Editor via onOpenEditor; mantido pra futura expansão
+  const [coverMenuOpen, setCoverMenuOpen] = useState(false)
+  // Estilos do menu, na ordem do catálogo (só os habilitados nas Configurações).
+  const menuStyles = COVER_STYLES.filter((s) => enabledStyles.includes(s.id))
+  void novelId // referenced no botão Editor via onOpenEditor; mantido pra futura expansão
   // Tradução incompleta = ainda tem caps em EN. Volume nao deve ser tratado
   // como "pronto" — esconde .epub/Kindle/Regerar capa e mostra Retraduzir.
   const incompleteTranslation = !!vol.translate_to && vol.translation_failed > 0
@@ -386,11 +414,12 @@ function PersistedVolumeRow({
     }
   }
 
-  async function regenerateCover(): Promise<void> {
+  async function regenerateCover(coverStyle?: string | null): Promise<void> {
+    setCoverMenuOpen(false)
     setRegenerating(true)
     setSendMsg(null)
     try {
-      await api.regenerateVolumeCover(vol.id)
+      await api.regenerateVolumeCover(vol.id, coverStyle ?? null)
       setSendMsg({
         ok: true,
         text: vol.ai_cover
@@ -401,6 +430,16 @@ function PersistedVolumeRow({
       setSendMsg({ ok: false, text: err instanceof Error ? err.message : String(err) })
     } finally {
       setRegenerating(false)
+    }
+  }
+
+  // Comportamento do botão de capa conforme estilos habilitados nas Configurações:
+  // 0 = automático (IA decide); 1 = vai direto nele; 2+ = abre menu pra escolher.
+  function onCoverButtonClick(): void {
+    if (menuStyles.length >= 2) {
+      setCoverMenuOpen((v) => !v)
+    } else {
+      regenerateCover(menuStyles[0]?.id ?? null)
     }
   }
 
@@ -489,126 +528,180 @@ function PersistedVolumeRow({
   return (
     <li
       className={[
-        'flex flex-wrap items-center gap-3 rounded-xl border bg-[var(--paper-100)] px-4 py-3',
+        'flex flex-col gap-3 rounded-xl border bg-[var(--paper-100)] px-4 py-3',
         'border-[var(--border-soft)]'
       ].join(' ')}
     >
-      <div className="min-w-0 flex-1">
-        <div className="font-display truncate text-[15px] font-medium tracking-tight">
+      {/* Título + meta: linha própria, largura total — nunca é esmagado pelos botões. */}
+      <div className="min-w-0">
+        <div className="font-display text-[15px] font-medium leading-snug tracking-tight">
           {vol.volume_title ?? `Capítulos ${vol.start}–${vol.end ?? '?'}`}
         </div>
-        <div className="font-sans text-[11px] tracking-wide text-[var(--ink-500)]">
+        <div className="font-sans mt-0.5 text-[11px] tracking-wide text-[var(--ink-500)]">
           caps {vol.start}–{vol.end ?? '?'} · {vol.translate_to ?? 'original'}
           {vol.ai_cover && ' · capa IA'}
           {incompleteTranslation && (
             <span className="text-[var(--ink-stamp)]">
-              {' '}· {vol.translation_failed} falharam tradução
+              {' '}
+              · {vol.translation_failed} falharam tradução
             </span>
           )}
         </div>
       </div>
-      {incompleteTranslation ? (
-        // Tradução incompleta: Retraduzir (Gemini) OU Editar (manual). Esconde
-        // .epub/Kindle/Regerar capa pra evitar leitor levar EPUB pensando que ok.
-        <>
-          <Button size="sm" onClick={retryTranslation} disabled={retrying}>
-            {retrying ? (
-              <Loader2 className="size-3.5 animate-spin" />
-            ) : (
-              <RefreshCw className="size-3.5" />
-            )}
-            Retraduzir
-          </Button>
-          <Button variant="outline" size="sm" onClick={() => onOpenEditor(vol)}>
-            <FileEdit className="size-3.5" /> Editar caps
-          </Button>
-        </>
-      ) : (
-        <>
-          <Button asChild variant="outline" size="sm">
-            <a href={api.volumeFileUrl(vol.id)} download>
-              <Download className="size-3.5" /> .epub
-            </a>
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={rebuildEpub}
-            disabled={rebuilding}
-            title="Re-monta o EPUB do cache atual (sem custo)"
-          >
-            {rebuilding ? (
-              <Loader2 className="size-3.5 animate-spin" />
-            ) : (
-              <Hammer className="size-3.5" />
-            )}
-            Recompilar
-          </Button>
-          {untranslated && (
-            <Button size="sm" onClick={translateVolume} disabled={translatingNow}>
-              {translatingNow ? (
+
+      {/* Ações: linha própria que quebra; Excluir isolado à direita. */}
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          {incompleteTranslation ? (
+            // Tradução incompleta: Retraduzir (Gemini) OU Editar (manual). Esconde
+            // .epub/Kindle/capa pra evitar leitor levar EPUB pensando que está ok.
+            <>
+              <Button size="sm" onClick={retryTranslation} disabled={retrying}>
+                {retrying ? (
+                  <Loader2 className="size-3.5 animate-spin" />
+                ) : (
+                  <RefreshCw className="size-3.5" />
+                )}
+                Retraduzir
+              </Button>
+              <Button variant="outline" size="sm" onClick={() => onOpenEditor(vol)}>
+                <FileEdit className="size-3.5" /> Editar caps
+              </Button>
+            </>
+          ) : (
+            <>
+              <Button asChild variant="outline" size="sm">
+                <a href={api.volumeFileUrl(vol.id)} download>
+                  <Download className="size-3.5" /> .epub
+                </a>
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={rebuildEpub}
+                disabled={rebuilding}
+                title="Re-monta o EPUB do cache atual (sem custo)"
+              >
+                {rebuilding ? (
+                  <Loader2 className="size-3.5 animate-spin" />
+                ) : (
+                  <Hammer className="size-3.5" />
+                )}
+                Recompilar
+              </Button>
+              {untranslated && (
+                <Button size="sm" onClick={translateVolume} disabled={translatingNow}>
+                  {translatingNow ? (
+                    <Loader2 className="size-3.5 animate-spin" />
+                  ) : (
+                    <Languages className="size-3.5" />
+                  )}
+                  Traduzir
+                </Button>
+              )}
+              <div className="relative">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={onCoverButtonClick}
+                  disabled={regenerating}
+                  title={
+                    vol.ai_cover
+                      ? 'Gera uma nova capa por IA (~R$0,20)'
+                      : 'Gera uma capa por IA pra este volume (~R$0,20)'
+                  }
+                >
+                  {regenerating ? (
+                    <Loader2 className="size-3.5 animate-spin" />
+                  ) : (
+                    <ImageIcon className="size-3.5" />
+                  )}
+                  {vol.ai_cover ? 'Regerar capa' : 'Gerar capa'}
+                  {menuStyles.length >= 2 && <ChevronDown className="size-3.5" />}
+                </Button>
+
+                {coverMenuOpen && menuStyles.length >= 2 && (
+                  <>
+                    {/* backdrop transparente: clique fora fecha o menu */}
+                    <div className="fixed inset-0 z-40" onClick={() => setCoverMenuOpen(false)} />
+                    <div
+                      className={[
+                        'absolute left-0 top-full z-50 mt-1 max-h-72 w-56 overflow-y-auto',
+                        'rounded-xl border border-[var(--border-medium)] bg-[var(--paper-50)] py-1',
+                        'shadow-[0_8px_24px_rgba(80,50,20,0.18)]'
+                      ].join(' ')}
+                    >
+                      <button
+                        type="button"
+                        onClick={() => regenerateCover(null)}
+                        className="font-sans block w-full px-3 py-1.5 text-left text-[13px] text-[var(--ink-700)] hover:bg-[var(--paper-200)]"
+                      >
+                        Automático <span className="text-[var(--ink-400)]">(IA decide)</span>
+                      </button>
+                      <div className="my-1 border-t border-[var(--border-soft)]" />
+                      {menuStyles.map((style) => (
+                        <button
+                          key={style.id}
+                          type="button"
+                          onClick={() => regenerateCover(style.id)}
+                          className="font-sans block w-full px-3 py-1.5 text-left text-[13px] text-[var(--ink-700)] hover:bg-[var(--paper-200)]"
+                        >
+                          {style.label}
+                        </button>
+                      ))}
+                    </div>
+                  </>
+                )}
+              </div>
+              <Button variant="outline" size="sm" onClick={sendKindle} disabled={sending}>
+                {sending ? (
+                  <Loader2 className="size-3.5 animate-spin" />
+                ) : (
+                  <Send className="size-3.5" />
+                )}
+                Kindle
+              </Button>
+            </>
+          )}
+        </div>
+
+        {confirmDelete ? (
+          <span className="flex items-center gap-1.5">
+            <span className="font-sans text-[11px] text-[var(--ink-500)]">Excluir?</span>
+            <Button variant="outline" size="sm" onClick={removeVolume} disabled={deleting}>
+              {deleting ? (
                 <Loader2 className="size-3.5 animate-spin" />
               ) : (
-                <Languages className="size-3.5" />
+                <Trash2 className="size-3.5" />
               )}
-              Traduzir
+              Sim
             </Button>
-          )}
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={regenerateCover}
-            disabled={regenerating}
-            title={
-              vol.ai_cover
-                ? 'Gera uma nova capa por IA (~R$0,20)'
-                : 'Gera uma capa por IA pra este volume (~R$0,20)'
-            }
-          >
-            {regenerating ? (
-              <Loader2 className="size-3.5 animate-spin" />
-            ) : (
-              <ImageIcon className="size-3.5" />
-            )}
-            {vol.ai_cover ? 'Regerar capa' : 'Gerar capa'}
-          </Button>
-          <Button variant="outline" size="sm" onClick={sendKindle} disabled={sending}>
-            {sending ? <Loader2 className="size-3.5 animate-spin" /> : <Send className="size-3.5" />}
-            Kindle
-          </Button>
-        </>
-      )}
-      {confirmDelete ? (
-        <span className="flex items-center gap-1.5">
-          <span className="font-sans text-[11px] text-[var(--ink-500)]">Excluir volume?</span>
-          <Button variant="outline" size="sm" onClick={removeVolume} disabled={deleting}>
-            {deleting ? <Loader2 className="size-3.5 animate-spin" /> : <Trash2 className="size-3.5" />}
-            Sim, excluir
-          </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setConfirmDelete(false)}
+              disabled={deleting}
+            >
+              Cancelar
+            </Button>
+          </span>
+        ) : (
           <Button
             variant="ghost"
             size="sm"
-            onClick={() => setConfirmDelete(false)}
-            disabled={deleting}
+            onClick={() => setConfirmDelete(true)}
+            title="Remove este volume (registro + arquivo .epub). Não apaga capítulos do cache."
+            className="text-[var(--ink-stamp)]"
           >
-            Cancelar
+            <Trash2 className="size-3.5" /> Excluir
           </Button>
-        </span>
-      ) : (
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={() => setConfirmDelete(true)}
-          title="Remove este volume (registro + arquivo .epub). Não apaga capítulos do cache."
-          className="text-[var(--ink-stamp)]"
-        >
-          <Trash2 className="size-3.5" /> Excluir
-        </Button>
-      )}
+        )}
+      </div>
+
       {sendMsg && (
         <span
           className={[
-            'font-sans w-full text-[11px]',
+            'font-sans text-[11px]',
             sendMsg.ok ? 'text-[var(--book-3)]' : 'text-[var(--ink-stamp)]'
           ].join(' ')}
         >

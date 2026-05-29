@@ -107,6 +107,9 @@ class AppSettings(Base):
     cascade_order: Mapped[str] = mapped_column(
         String(200), default="groq,openrouter,cerebras,gemini"
     )
+    # CSV dos ids de estilo de capa habilitados no dropdown (ver image_gen.cover_styles).
+    # Vazio = nenhum estilo fixo, capa sempre no modo automatico (IA decide).
+    cover_styles_enabled: Mapped[str] = mapped_column(String(500), default="")
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )

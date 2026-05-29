@@ -49,6 +49,7 @@ async def download_to_epub(
     translate_to: str | None = None,
     volume_title: str | None = None,
     ai_cover: bool = False,
+    cover_style: str | None = None,
     on_complete: Callable[[dict], None] | None = None,
 ) -> Path:
     output_dir = Path(output_dir) if output_dir else settings.output_dir
@@ -195,6 +196,7 @@ async def download_to_epub(
                 volume_title=volume_title,
                 chapters=collected,
                 glossary=glossary,
+                cover_style=cover_style,
             )
             cover = ai_bytes  # SUBSTITUI a raspada
             if progress:

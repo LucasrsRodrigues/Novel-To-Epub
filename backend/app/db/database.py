@@ -51,6 +51,7 @@ _PENDING_COLUMNS: list[tuple[str, str, str]] = [
     ("app_settings", "openrouter_api_key", "TEXT"),
     ("app_settings", "cerebras_api_key", "TEXT"),
     ("app_settings", "cascade_order", "VARCHAR(200) DEFAULT 'groq,openrouter,cerebras,gemini'"),
+    ("app_settings", "cover_styles_enabled", "VARCHAR(500) DEFAULT ''"),
     # Provider tracking pra breakdown no dashboard
     ("gemini_usage", "provider", "VARCHAR(40)"),
     # Erro humano-legivel quando provider falha no cascade
