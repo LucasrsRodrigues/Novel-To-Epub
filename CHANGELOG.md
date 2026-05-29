@@ -7,6 +7,37 @@ o versionamento segue [SemVer](https://semver.org/lang/pt-BR/).
 
 ## [Unreleased]
 
+## [1.0.13] — 2026-05-29
+
+Release grande de **capas por IA**: foco em coleção coesa por série, galeria
+pra baixar a arte, e regeneração leve.
+
+### Added
+
+- **Galeria de capas** no detalhe da novel — clique numa capa pra abrir um modal
+  com preview grande e **download da arte** em vários formatos: capa com título
+  (2:3), arte sem texto (2:3), wallpaper celular (1080×1920), PC (1920×1080) e
+  PC alta (2560×1440). Wallpapers locais (grátis, via Pillow) + opção de gerar o
+  wallpaper **nativo** no Gemini.
+- **Seletor de estilo na Nova Captura** quando "capa por IA" está ligado, e o
+  estilo escolhido vira o **padrão da novel** (pré-selecionado nas próximas).
+- **Consistência de coleção por série**: estilo travado por novel + **âncora de
+  paleta/luz** extraída da 1ª capa e aplicada às seguintes — volumes da mesma
+  série saem coerentes. "Capturar mais capítulos" herda o estilo travado.
+- **Botão "Regerar todas as capas"** na galeria — realinha a coleção inteira de
+  uma vez (com confirmação de custo).
+- **Aviso de falha de capa** no card de Downloads — antes a falha (rate-limit,
+  403, etc.) sumia num log silencioso; agora aparece classificada com dica.
+
+### Changed
+
+- **Regerar capa não re-baixa nem re-traduz** — caminho leve "só capa" que usa o
+  cache e recompila o EPUB (antes re-enfileirava um download completo, que
+  re-tentava capítulos falhos e estourava rate-limit).
+- **Estilo travado domina o prompt** e o título/nome da série **saem do prompt**
+  do Gemini (entram só na tipografia sobreposta) — corrige a técnica não-aplicada
+  em cenas complexas e o "texto-fantasma" que o modelo cravava nas capas.
+
 ## [1.0.12] — 2026-05-29
 
 ### Added

@@ -1,6 +1,6 @@
 {
   "name": "novel-to-epub",
-  "version": "1.0.12",
+  "version": "1.0.13",
   "description": "Scraper de web novels que gera EPUBs com tradução por IA, capa gerada e envio pro Kindle.",
   "main": "./out/main/index.js",
   "author": "LucasrsRodrigues",
