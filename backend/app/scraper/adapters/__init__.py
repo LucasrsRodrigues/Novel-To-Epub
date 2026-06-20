@@ -12,4 +12,5 @@ O import explicito garante que o adapter:
 
 from . import novelbin  # noqa: F401
 from . import novelmania  # noqa: F401
-from . import novellfull
+from . import novellfull  # noqa: F401
+from . import royalroad  # noqa: F401

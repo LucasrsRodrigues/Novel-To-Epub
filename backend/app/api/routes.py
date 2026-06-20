@@ -10,6 +10,7 @@ from fastapi.responses import FileResponse
 from app import __version__
 from app.api.jobs import JobManager
 from app.api.schemas import (
+    AddMirrorRequest,
     ChapterDetail,
     ChapterSummary,
     ChapterTranslationUpdate,
@@ -17,11 +18,13 @@ from app.api.schemas import (
     DownloadRequest,
     GlossaryEntryOut,
     JobStatus,
+    MirrorOut,
     NovelDetail,
     NovelPreviewOut,
     NovelPreviewRequest,
     NovelSummary,
     RegenerateCoverRequest,
+    RenameVolumeRequest,
     VolumePreview,
     SettingsOut,
     SettingsUpdate,
@@ -38,6 +41,7 @@ from app.api.schemas import (
 from app.translation.pin_store import VolumePinStore
 from app.db.cache import ChapterCache
 from app.db.cover_cache import CoverCache
+from app.db.mirror_store import MirrorStore
 from app.db.database import get_session
 from app.db import models as orm
 from sqlalchemy import select
@@ -89,6 +93,10 @@ def _settings_out(cfg: dict) -> SettingsOut:
         default_models=_provider_defaults(),
         cascade_order=order,
         cover_styles_enabled=cover_styles,
+        gemini_use_vertex=bool(cfg.get("gemini_use_vertex")),
+        gemini_vertex_project=cfg.get("gemini_vertex_project") or None,
+        gemini_vertex_location=cfg.get("gemini_vertex_location") or "us-central1",
+        gemini_vertex_credentials_set=bool(cfg.get("gemini_vertex_credentials_path")),
     )
 
 
@@ -194,6 +202,35 @@ def cancel_download(job_id: str, jobs: JobManager = Depends(get_jobs)) -> JobSta
     return job.to_status()
 
 
+@router.post("/downloads/{job_id}/resume", response_model=JobStatus, status_code=201)
+def resume_download(job_id: str, jobs: JobManager = Depends(get_jobs)) -> JobStatus:
+    """Continua uma captura cancelada/com erro reaproveitando os mesmos params.
+
+    O cache faz retomar de onde parou (so baixa/traduz o que faltou). 409 se o
+    job nao esta num estado retomavel (ex: ainda rodando ou ja concluido).
+    """
+    job = jobs.resume(job_id)
+    if job is None:
+        existing = jobs.get(job_id)
+        if existing is None:
+            raise HTTPException(status_code=404, detail="job nao encontrado")
+        raise HTTPException(
+            status_code=409,
+            detail=f"job em estado '{existing.status}' nao pode ser retomado",
+        )
+    return job.to_status()
+
+
+@router.delete("/downloads/{job_id}", status_code=204)
+def discard_download(job_id: str, jobs: JobManager = Depends(get_jobs)) -> None:
+    """Descarta uma captura pendente (cancelada/erro/interrompida) + sua intencao
+    persistida. Nao apaga capitulos/traducao do cache. 409 se ainda esta ativo."""
+    if not jobs.discard(job_id):
+        raise HTTPException(
+            status_code=409, detail="job ativo — cancele antes de descartar"
+        )
+
+
 @router.get("/downloads/{job_id}/file")
 def download_file(job_id: str, jobs: JobManager = Depends(get_jobs)) -> FileResponse:
     job = jobs.get(job_id)
@@ -228,6 +265,53 @@ def list_volumes(novel_id: int) -> list[dict]:
     return VolumeStore().list_for_novel(novel_id)
 
 
+@router.get("/library/{novel_id}/mirrors", response_model=list[MirrorOut])
+def list_mirrors(novel_id: int) -> list[dict]:
+    """Fontes alternativas (mirrors) desta novel, em ordem de prioridade."""
+    return MirrorStore().list_for_novel(novel_id)
+
+
+@router.post("/library/{novel_id}/mirrors", response_model=MirrorOut, status_code=201)
+async def add_mirror(novel_id: int, req: AddMirrorRequest) -> dict:
+    """Liga um site alternativo a esta novel (mesmo novel_id => cache preservado).
+
+    Valida que a URL e de um site suportado e que abre como pagina de novel
+    (fetch_novel parseia) antes de salvar. O usuario afirma que e a MESMA obra;
+    o casamento de capitulos no fallback e por numero de titulo, entao mirrors
+    com numeracao levemente diferente (off-by-N) ainda funcionam.
+    """
+    from app.scraper.http import HttpClient
+
+    novel = ChapterCache().get_novel(novel_id)
+    if novel is None:
+        raise HTTPException(status_code=404, detail="novel nao encontrada")
+
+    url = req.url.strip()
+    if not registry.supports(url):
+        raise HTTPException(status_code=400, detail=f"site nao suportado: {url}")
+    if url == novel["source_url"]:
+        raise HTTPException(
+            status_code=400, detail="essa ja e a fonte primaria desta novel"
+        )
+
+    async with HttpClient() as client:
+        adapter = registry.resolve(url, client)
+        try:
+            await adapter.fetch_novel(url)  # sanity: abre e parseia como novel
+        except Exception as exc:
+            raise HTTPException(
+                status_code=502, detail=f"falha ao validar o mirror: {exc}"
+            ) from exc
+
+    return MirrorStore().add(novel_id, adapter.name, url)
+
+
+@router.delete("/mirrors/{mirror_id}", status_code=204)
+def delete_mirror(mirror_id: int) -> None:
+    if not MirrorStore().delete(mirror_id):
+        raise HTTPException(status_code=404, detail="mirror nao encontrado")
+
+
 @router.delete("/volumes/{volume_id}", status_code=204)
 def delete_volume(volume_id: int) -> None:
     """Remove um volume gerado: apaga o registro e o .epub do disco.
@@ -254,6 +338,105 @@ def download_volume_file(volume_id: int) -> FileResponse:
     return FileResponse(
         path, media_type="application/epub+zip", filename=path.name
     )
+
+
+def _ready_volumes(novel_id: int) -> list[dict]:
+    """Volumes 'prontos' de uma novel: pula os de tradução incompleta (mesma
+    regra da UI, que esconde .epub/Kindle quando faltam caps traduzidos)."""
+    vols = VolumeStore().list_for_novel(novel_id)
+    return [
+        v for v in vols
+        if not (v["translate_to"] and (v["translation_failed"] or 0) > 0)
+    ]
+
+
+@router.get("/library/{novel_id}/volumes.zip")
+def download_all_volumes(novel_id: int) -> Response:
+    """Baixa TODOS os volumes prontos da novel num único .zip (sem recompactar —
+    os .epub já são comprimidos). Pula volumes com tradução incompleta ou cujo
+    arquivo sumiu do disco."""
+    import io
+    import zipfile
+    from slugify import slugify
+
+    novel = ChapterCache().get_novel(novel_id)
+    if novel is None:
+        raise HTTPException(status_code=404, detail="novel nao encontrada")
+
+    buf = io.BytesIO()
+    added = 0
+    used_names: set[str] = set()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_STORED) as zf:
+        for v in _ready_volumes(novel_id):
+            path = Path(v["output_path"])
+            if not path.exists():
+                continue
+            # Garante nome único dentro do zip (evita colisão de basename).
+            name = path.name
+            if name in used_names:
+                name = f"{path.stem}-{v['id']}{path.suffix}"
+            used_names.add(name)
+            zf.write(path, arcname=name)
+            added += 1
+
+    if added == 0:
+        raise HTTPException(status_code=404, detail="nenhum volume pronto pra baixar")
+
+    zip_name = f"{slugify(novel.get('title') or f'novel-{novel_id}')}.zip"
+    return Response(
+        content=buf.getvalue(),
+        media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="{zip_name}"'},
+    )
+
+
+@router.post("/library/{novel_id}/kindle-all")
+async def send_all_to_kindle(novel_id: int) -> dict:
+    """Envia TODOS os volumes prontos da novel pro Kindle, em sequência. Devolve
+    o resultado por volume (não falha o lote inteiro se um volume der erro)."""
+    novel = ChapterCache().get_novel(novel_id)
+    if novel is None:
+        raise HTTPException(status_code=404, detail="novel nao encontrada")
+
+    cfg = SettingsStore().get()
+    missing = [
+        k for k in ("smtp_host", "smtp_from", "kindle_email") if not cfg.get(k)
+    ]
+    if missing:
+        raise HTTPException(
+            status_code=400,
+            detail=f"configuracao incompleta (faltam: {', '.join(missing)})",
+        )
+
+    ready = _ready_volumes(novel_id)
+    if not ready:
+        raise HTTPException(status_code=404, detail="nenhum volume pronto pra enviar")
+
+    results: list[dict] = []
+    sent = 0
+    for v in ready:
+        title = v["volume_title"] or f"caps {v['start']}-{v['end']}"
+        path = Path(v["output_path"])
+        if not path.exists():
+            results.append({"volume_id": v["id"], "title": title, "ok": False,
+                            "error": "arquivo .epub sumiu do disco"})
+            continue
+        try:
+            await send_epub_to_kindle(
+                str(path),
+                host=cfg["smtp_host"], port=cfg["smtp_port"],
+                username=cfg["smtp_user"], password=cfg["smtp_password"],
+                sender=cfg["smtp_from"], to=cfg["kindle_email"],
+                use_tls=cfg["smtp_use_tls"],
+            )
+            sent += 1
+            results.append({"volume_id": v["id"], "title": title, "ok": True})
+        except Exception as exc:
+            results.append({"volume_id": v["id"], "title": title, "ok": False,
+                            "error": str(exc)})
+
+    return {"to": cfg["kindle_email"], "sent": sent,
+            "total": len(ready), "results": results}
 
 
 @router.post("/volumes/{volume_id}/kindle")
@@ -302,6 +485,64 @@ async def rebuild_volume(volume_id: int) -> dict:
     if vol is None:
         raise HTTPException(status_code=404, detail="volume sumiu apos rebuild")
     return vol
+
+
+@router.post("/volumes/{volume_id}/rename", response_model=VolumeOut)
+async def rename_volume(volume_id: int, body: RenameVolumeRequest) -> dict:
+    """Renomeia o volume: re-compoe o texto da capa sobre a arte EXISTENTE (sem
+    IA, custo zero) e remonta o .epub com o novo titulo.
+
+    Nao re-baixa, nao re-traduz e nao gera arte nova — so o overlay de texto da
+    capa e refeito a partir da arte crua salva, e o .epub e remontado do cache
+    (mesmo arquivo no disco). 409 se a capa por IA nao guardou a arte sem texto
+    (capas antigas): nesse caso, regenere a arte da capa antes.
+    """
+    from app.rebuild import rebuild_volume_epub, RebuildError
+    from app.image_gen.cover_generator import recompose_cover_text
+
+    vs = VolumeStore()
+    vol = vs.get(volume_id)
+    if vol is None:
+        raise HTTPException(status_code=404, detail="volume nao encontrado")
+
+    new_title = body.volume_title.strip()
+    if not new_title:
+        raise HTTPException(status_code=400, detail="titulo do volume nao pode ser vazio")
+
+    old_title = vol["volume_title"]
+    if new_title == (old_title or "").strip():
+        return vol  # nada mudou — evita rebuild a toa
+
+    novel_id = vol["novel_id"]
+    # Re-compoe o texto da capa por IA sobre a arte crua (sem custo). Volumes com
+    # capa raspada/sem capa pulam isso — so o titulo interno do .epub muda.
+    if vol["ai_cover"]:
+        novel = ChapterCache().get_novel(novel_id)
+        novel_title = (novel or {}).get("title") or ""
+        status = recompose_cover_text(
+            novel_id=novel_id,
+            old_title=old_title,
+            new_title=new_title,
+            novel_title=novel_title,
+        )
+        if status == "no_raw":
+            raise HTTPException(
+                status_code=409,
+                detail="arte sem texto indisponivel — regenere a arte da capa antes de renomear",
+            )
+
+    vs.rename(volume_id, new_title)
+
+    # Remonta o .epub do cache com o novo titulo (e a capa re-composta). Zero token.
+    try:
+        await rebuild_volume_epub(volume_id)
+    except RebuildError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    updated = vs.get(volume_id)
+    if updated is None:
+        raise HTTPException(status_code=404, detail="volume sumiu apos rebuild")
+    return updated
 
 
 @router.post(

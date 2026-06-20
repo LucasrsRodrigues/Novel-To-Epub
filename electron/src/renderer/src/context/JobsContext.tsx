@@ -43,8 +43,21 @@ export function JobsProvider({ children }: { children: ReactNode }): React.JSX.E
       wsRef.current = ws
       ws.onopen = () => setConnected(true)
       ws.onmessage = (e) => {
-        const msg = JSON.parse(e.data as string) as { event: string; job: JobStatus }
-        setJobs((prev) => ({ ...prev, [msg.job.id]: msg.job }))
+        const msg = JSON.parse(e.data as string) as {
+          event: string
+          job?: JobStatus
+          job_id?: string
+        }
+        // Evento 'removed' (descarte) não traz job — remove a linha pelo id.
+        if (msg.event === 'removed' && msg.job_id) {
+          setJobs((prev) => {
+            const next = { ...prev }
+            delete next[msg.job_id as string]
+            return next
+          })
+          return
+        }
+        if (msg.job) setJobs((prev) => ({ ...prev, [msg.job!.id]: msg.job! }))
       }
       ws.onerror = () => ws.close()
       ws.onclose = () => {

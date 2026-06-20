@@ -30,6 +30,30 @@ class GeminiTranslationError(RuntimeError):
     """O Gemini nao devolveu output utilizavel (safety, json, etc)."""
 
 
+class GeminiContentBlockedError(GeminiTranslationError):
+    """Bloqueio por guardrail de conteudo do Gemini (safety/prohibited_content).
+
+    Diferente dos demais erros, este e PERMANENTE para aquele input: re-enviar
+    o mesmo capitulo sempre bloqueia (guardrail interno determinístico) e NAO e
+    sinal de saude do provider — portanto o cascade nao deve marcar cooldown
+    (senao envenena os capitulos seguintes). O capitulo cai para edicao manual.
+    """
+
+
+# finish_reason / block_reason que indicam bloqueio de POLITICA DE CONTEUDO.
+# Sao permanentes p/ o input (retry nao ajuda) e nao refletem saude do provider.
+_CONTENT_BLOCK_MARKERS = ("SAFETY", "PROHIBITED_CONTENT", "BLOCKLIST", "SPII")
+
+
+def _is_content_block(finish_reasons: list[str], block_reason: object) -> bool:
+    """True se o motivo do None foi guardrail de conteudo (vs json/truncamento)."""
+    hay = " ".join(finish_reasons)
+    if block_reason is not None:
+        hay += " " + str(block_reason)
+    hay = hay.upper()
+    return any(marker in hay for marker in _CONTENT_BLOCK_MARKERS)
+
+
 _LANG_NAMES = {
     "pt-BR": "português brasileiro",
     "pt-PT": "português europeu",
@@ -177,9 +201,42 @@ A entrada vem como sequência de tags <p>...</p>. Sua saída `translated_html` d
 class GeminiProvider(TranslationProvider):
     name = "gemini"
 
-    def __init__(self, api_key: str, model: str = "gemini-2.5-flash"):
-        self.client = genai.Client(api_key=api_key)
+    def __init__(
+        self,
+        api_key: str | None = None,
+        model: str = "gemini-2.5-flash",
+        *,
+        escalation_model: str | None = None,
+        use_vertex: bool = False,
+        project: str | None = None,
+        location: str = "us-central1",
+        credentials_path: str | None = None,
+    ):
+        # Dois modos de auth pro MESMO SDK / mesma logica de traducao:
+        #   - API key (AI Studio / Generative Language API): faturado a parte,
+        #     NAO consome credito do Google Cloud.
+        #   - Vertex AI: produto GCP "core", autenticado por service account,
+        #     faturado no billing do projeto -> consome o credito do GCP. Os
+        #     modelos Gemini sao os mesmos.
+        # O builder do client e compartilhado com a geracao de capa (ver
+        # app.gemini_client) pra os dois caminhos sempre irem pro mesmo lugar.
+        from app.gemini_client import make_genai_client
+
+        self.client = make_genai_client(
+            use_vertex=use_vertex,
+            project=project,
+            location=location,
+            credentials_path=credentials_path,
+            api_key=api_key,
+        )
         self.model = model
+        # Modelo de ESCALAÇÃO por bloqueio de conteúdo: quando o modelo primário
+        # (tipicamente Flash) bate num guardrail interno (sangue/violência borderline),
+        # re-tentamos O MESMO capítulo neste modelo (tipicamente Pro, que às vezes
+        # passa onde o Flash bloqueia) antes de cair pra edição manual. Mantém o
+        # Flash como caminho rápido pra 99% dos caps e só paga o custo/latência do
+        # Pro nos poucos que realmente precisam. None = sem escalação.
+        self.escalation_model = escalation_model
 
     async def translate_chapter(
         self,
@@ -234,6 +291,35 @@ class GeminiProvider(TranslationProvider):
             safety_settings=safety_settings,
         )
 
+        # Flash primeiro (rápido); se bater guardrail de conteúdo, escala pro
+        # modelo de fallback (Pro) com o MESMO input antes de desistir.
+        try:
+            return await self._generate_for_model(
+                self.model, user_msg, config, glossary, chapter_index
+            )
+        except GeminiContentBlockedError:
+            if self.escalation_model and self.escalation_model != self.model:
+                log.warning(
+                    "gemini_content_block_escalating",
+                    chapter=chapter_index,
+                    from_model=self.model,
+                    to_model=self.escalation_model,
+                )
+                # Se a escalação TAMBÉM bloquear, deixa o GeminiContentBlockedError
+                # subir normalmente → cascade tenta próximo provider / edição manual.
+                return await self._generate_for_model(
+                    self.escalation_model, user_msg, config, glossary, chapter_index
+                )
+            raise
+
+    async def _generate_for_model(
+        self,
+        model: str,
+        user_msg: str,
+        config: "types.GenerateContentConfig",
+        glossary: list[GlossaryEntry],
+        chapter_index: int | None,
+    ) -> TranslationResult:
         # Dois niveis de retry:
         #   1. call_with_retry: trata erros 5xx/429 (UNAVAILABLE, RESOURCE_EXHAUSTED,
         #      INTERNAL) com backoff exponencial.
@@ -247,7 +333,7 @@ class GeminiProvider(TranslationProvider):
             try:
                 resp = await call_with_retry(
                     lambda: self.client.aio.models.generate_content(
-                        model=self.model, contents=user_msg, config=config
+                        model=model, contents=user_msg, config=config
                     ),
                     op="translate_chapter",
                     chapter=chapter_index,
@@ -273,6 +359,17 @@ class GeminiProvider(TranslationProvider):
                     reasons.append(str(fr))
             pf = getattr(resp, "prompt_feedback", None)
             block_reason = getattr(pf, "block_reason", None) if pf else None
+            if _is_content_block(reasons, block_reason):
+                # Bloqueio de conteudo: permanente. Nao gasta o 2o retry e sobe
+                # como erro distinto p/ o cascade NAO marcar cooldown. A mensagem
+                # carrega "safety"/block_reason de proposito — a UI (classifyFailure)
+                # usa isso p/ rotular como "edicao manual".
+                raise GeminiContentBlockedError(
+                    f"Gemini bloqueou o cap {chapter_index} por guardrail de "
+                    f"conteudo (safety/prohibited_content). finish_reason="
+                    f"{reasons or '?'}, block_reason={block_reason or 'none'}. "
+                    f"Conteudo precisa de edicao manual."
+                )
             last_err = (
                 f"sem JSON parseado (finish_reason={reasons or '?'}, "
                 f"block_reason={block_reason or 'none'})"
@@ -298,6 +395,7 @@ class GeminiProvider(TranslationProvider):
         log.info(
             "gemini_translated",
             chapter=chapter_index,
+            model=model,
             glossary_in=len(glossary),
             new_entries=len(parsed.new_glossary_entries),
             input_tokens=input_tokens,
@@ -322,5 +420,5 @@ class GeminiProvider(TranslationProvider):
             ],
             input_tokens=input_tokens,
             output_tokens=output_tokens,
-            model=self.model,
+            model=model,
         )

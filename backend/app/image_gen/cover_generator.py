@@ -171,6 +171,45 @@ def _composite_title_overlay(
     return out.getvalue(), "image/jpeg"
 
 
+def recompose_cover_text(
+    *,
+    novel_id: int,
+    old_title: str | None,
+    new_title: str | None,
+    novel_title: str,
+) -> str:
+    """Re-aplica o texto (novo titulo do volume) sobre a arte CRUA ja salva e
+    renomeia a chave de cache da capa — SEM chamar IA (custo zero).
+
+    Retorna:
+      - ``"recomposed"`` se re-compos e renomeou a capa;
+      - ``"no_cover"``   se a novel/volume nao tem capa por IA;
+      - ``"no_raw"``     se a capa existe mas nao guarda a arte sem texto
+        (capas antigas) — o caller deve pedir pra regenerar a arte antes.
+    """
+    cache = CoverCache()
+    raw = cache.get_raw(novel_id, old_title)
+    if raw is None:
+        # Distingue "sem capa nenhuma" de "capa sem arte crua".
+        return "no_raw" if cache.get(novel_id, old_title) is not None else "no_cover"
+    raw_bytes, raw_mime = raw
+    final_bytes, final_mime = _composite_title_overlay(
+        raw_bytes,
+        novel_title=novel_title,
+        volume_title=new_title,
+        mime=raw_mime,
+    )
+    cache.rename(
+        novel_id, old_title, new_title,
+        image_data=final_bytes, mime_type=final_mime,
+    )
+    log.info(
+        "cover_text_recomposed",
+        novel_id=novel_id, old_title=old_title, new_title=new_title,
+    )
+    return "recomposed"
+
+
 class CoverGenError(RuntimeError):
     pass
 
@@ -187,6 +226,26 @@ def _resolve_api_key() -> str:
             "GEMINI_API_KEY ausente. Configure em /api/settings ou no env."
         )
     return key
+
+
+def _client() -> genai.Client:
+    """Cria o genai.Client honrando o modo Vertex (igual a traducao).
+
+    Em Vertex (service account) NAO precisa de api_key e o uso consome o credito
+    do GCP; senao resolve a key do AI Studio. Centralizado em app.gemini_client
+    pra capa e traducao nunca divergirem de provider.
+    """
+    from app.gemini_client import make_genai_client, vertex_cfg
+
+    cfg = SettingsStore().get()
+    use, project, location, creds = vertex_cfg(cfg)
+    return make_genai_client(
+        use_vertex=use,
+        project=project,
+        location=location,
+        credentials_path=creds,
+        api_key=None if use else _resolve_api_key(),
+    )
 
 
 @dataclass
@@ -583,7 +642,7 @@ async def generate_or_cache_cover(
     must_establish = not anchor_fresh
 
     style_override = style_prompt(cover_style)
-    client = genai.Client(api_key=_resolve_api_key())
+    client = _client()
     brief = await _build_visual_brief(
         client=client,
         text_model=text_model,
@@ -674,7 +733,7 @@ async def generate_native_wallpaper(
     if row is None:
         raise CoverGenError("capa nao encontrada")
 
-    client = genai.Client(api_key=_resolve_api_key())
+    client = _client()
     prompt = _wallpaper_prompt(row["prompt"], aspect)
     img_bytes, mime = await _generate_image_bytes(
         client=client,
@@ -715,7 +774,7 @@ async def regenerate_cover_art(
     # (capa antiga) ainda nao tinha o bloco, injeta agora — sem re-derivar (custo zero).
     prompt = _ensure_series_block(row["prompt"], novel.get("series_palette"))
 
-    client = genai.Client(api_key=_resolve_api_key())
+    client = _client()
     raw_bytes, raw_mime = await _generate_image_bytes(
         client=client, image_model=image_model, prompt=prompt,
         novel_id=row["novel_id"],

@@ -13,7 +13,13 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 
 from app.api.hub import ConnectionHub
-from app.api.schemas import DownloadRequest, JobStatus, TranslationFailure
+from app.api.schemas import (
+    DownloadFailure,
+    DownloadRequest,
+    JobStatus,
+    TranslationFailure,
+)
+from app.db.intent_store import IntentStore
 from app.db.volume_store import VolumeStore
 from app.logging_conf import get_logger
 from app.models import NovelMeta
@@ -51,6 +57,10 @@ class Job:
     # Detalhe por cap que falhou: TranslationFailure(chapter, title, reason).
     # Preenchido por on_complete; vazio enquanto o job nao terminou.
     translation_failures: list[TranslationFailure] = field(default_factory=list)
+    # Caps que nao deram pra baixar (pulados, fora do EPUB). Preenchido por
+    # on_complete. download_failed = len(download_failures).
+    download_failed: int = 0
+    download_failures: list[DownloadFailure] = field(default_factory=list)
     # Motivo da falha de capa por IA (rate-limit, sem key...). None = capa ok ou
     # nao pedida. Preenchido por on_complete; UI mostra pro usuario.
     cover_error: str | None = None
@@ -87,6 +97,8 @@ class Job:
             error=self.error,
             translation_failed=self.translation_failed,
             translation_failures=self.translation_failures,
+            download_failed=self.download_failed,
+            download_failures=self.download_failures,
             cover_error=self.cover_error,
             volume_id=self.volume_id,
             created_at=self.created_at,
@@ -104,6 +116,8 @@ class JobManager:
         self._running: dict[str, asyncio.Task] = {}
         self._n_workers = workers
         self.hub = ConnectionHub()
+        # Persiste a intencao de captura → "Continuar" sobrevive a restart.
+        self._intents = IntentStore()
 
     # ---------------------------------------------------------------- lifecycle
     async def start(self) -> None:
@@ -113,6 +127,39 @@ class JobManager:
             asyncio.create_task(self._worker(i)) for i in range(self._n_workers)
         ]
         log.info("jobmanager_started", workers=self._n_workers)
+        self._rehydrate_intents()
+
+    def _rehydrate_intents(self) -> None:
+        """Recria, como jobs NAO-rodando, as capturas que ficaram pendentes antes
+        do ultimo desligamento. Aparecem como 'interrupted' (ou cancelled/error,
+        se foi esse o estado) e ganham "Continuar captura" — o cache retoma de
+        onde parou. Nao re-enfileira nada automaticamente; o usuario decide."""
+        restored = 0
+        for d in self._intents.list_all():
+            if d["job_id"] in self._jobs:
+                continue
+            raw = d["status"]
+            # queued/running nao terminaram de forma limpa → foram interrompidos.
+            status = raw if raw in ("cancelled", "error") else "interrupted"
+            self._jobs[d["job_id"]] = Job(
+                id=d["job_id"],
+                url=d["source_url"],
+                start=d["start"],
+                end=d["end"],
+                with_cover=d["with_cover"],
+                translate_to=d["translate_to"],
+                volume_title=d["volume_title"],
+                ai_cover=d["ai_cover"],
+                cover_style=d["cover_style"],
+                skip_chapters=list(d["skip_chapters"]),
+                preserve_cover=d["preserve_cover"],
+                replace_volume_id=d["replace_volume_id"],
+                status=status,
+                title=d["title"],
+            )
+            restored += 1
+        if restored:
+            log.info("intents_rehydrated", count=restored)
 
     async def stop(self) -> None:
         for t in self._workers:
@@ -205,14 +252,97 @@ class JobManager:
             task.cancel()
         return job
 
+    def resume(self, job_id: str) -> Job | None:
+        """Re-roda um job terminal NAO-concluido (cancelado/erro) reaproveitando
+        TODOS os params originais (cover_style, skip_chapters, preserve_cover...).
+
+        O cache faz retomar de onde parou: caps e traducoes ja salvos sao pulados,
+        so o que faltou e baixado/traduzido. Reusa o MESMO job/id — a linha na UI
+        volta de 'cancelado'/'interrompido' pra 'em andamento', sem duplicar.
+        Funciona tambem apos restart: jobs interrompidos sao re-hidratados da
+        intencao persistida (ver ``_rehydrate_intents``).
+        """
+        job = self._jobs.get(job_id)
+        if job is None or job.status not in ("cancelled", "error", "interrupted"):
+            return None
+        # Zera o estado transiente; os PARAMS (url/start/end/cover_style/skip...)
+        # ficam intactos no objeto e sao repassados por _run.
+        job.status = "queued"
+        job.stage = "idle"
+        job.error = None
+        job.done = 0
+        job.total = 0
+        job.current = None
+        job.translation_failed = 0
+        job.translation_failures = []
+        job.download_failed = 0
+        job.download_failures = []
+        self._touch(job)
+        self._queue.put_nowait(job.id)
+        self._publish("queued", job)
+        log.info("job_resumed", id=job.id)
+        return job
+
+    def discard(self, job_id: str) -> bool:
+        """Remove de vez um job NAO-rodando (cancelado/erro/interrompido) da lista
+        e apaga a intencao persistida. Idempotente. Nao toca no cache de
+        capitulos/traducao/capa — so descarta a captura pendente. Retorna False
+        se o job esta ativo (queued/running): cancele antes."""
+        job = self._jobs.get(job_id)
+        if job is not None and job.status in ("queued", "running"):
+            return False
+        self._jobs.pop(job_id, None)
+        try:
+            self._intents.delete(job_id)
+        except Exception as exc:
+            log.warning("intent_delete_failed", id=job_id, error=str(exc))
+        # Evento dedicado (sem payload de job) → frontend remove a linha da lista.
+        self.hub.publish({"event": "removed", "job_id": job_id})
+        log.info("job_discarded", id=job_id)
+        return True
+
     # ---------------------------------------------------------------- internals
     def _touch(self, job: Job) -> None:
         job.updated_at = _now()
+
+    def _persist_intent(self, job: Job) -> None:
+        """Salva/atualiza a intencao de captura deste job (best-effort)."""
+        # Jobs "so capa" (regen) nao sao captura — nada a retomar.
+        if job.cover_only_volume_id is not None:
+            return
+        try:
+            self._intents.upsert(
+                job_id=job.id,
+                source_url=job.url,
+                title=job.title,
+                start=job.start,
+                end=job.end,
+                with_cover=job.with_cover,
+                translate_to=job.translate_to,
+                volume_title=job.volume_title,
+                ai_cover=job.ai_cover,
+                cover_style=job.cover_style,
+                skip_chapters=job.skip_chapters,
+                preserve_cover=job.preserve_cover,
+                replace_volume_id=job.replace_volume_id,
+                status=job.status,
+            )
+        except Exception as exc:  # persistencia e best-effort; nunca derruba o job
+            log.warning("intent_persist_failed", id=job.id, error=str(exc))
 
     def _publish(self, event: str, job: Job) -> None:
         self.hub.publish(
             {"event": event, "job": job.to_status().model_dump(mode="json")}
         )
+        # Persiste a intencao em transicoes de estado (nao em 'progress', que e
+        # ruidoso e nao muda os params). Conclusao apaga a intencao — virou volume.
+        if event == "done":
+            try:
+                self._intents.delete(job.id)
+            except Exception as exc:
+                log.warning("intent_delete_failed", id=job.id, error=str(exc))
+        elif event != "progress" and job.cover_only_volume_id is None:
+            self._persist_intent(job)
 
     async def _worker(self, n: int) -> None:
         while True:
@@ -255,6 +385,9 @@ class JobManager:
             job.title = meta.title
             self._touch(job)
             self._publish("progress", job)
+            # Grava o titulo na intencao agora que o conhecemos — assim um job
+            # interrompido por restart ja aparece com nome (e nao so a URL).
+            self._persist_intent(job)
 
         def on_progress(stage: str, done: int, total: int, title: str, from_cache: bool) -> None:
             # quando muda de fase (ex: download -> translate), reseta done/total visualmente
@@ -272,6 +405,12 @@ class JobManager:
             raw = stats.get("translation_failures") or []
             job.translation_failures = [
                 TranslationFailure(**f) for f in raw
+                if isinstance(f, dict)
+            ]
+            job.download_failed = int(stats.get("download_failed_count") or 0)
+            raw_dl = stats.get("download_failures") or []
+            job.download_failures = [
+                DownloadFailure(**f) for f in raw_dl
                 if isinstance(f, dict)
             ]
             job.cover_error = stats.get("cover_error") or None

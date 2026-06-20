@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 
 from app.db.settings_store import SettingsStore
+from app.gemini_client import vertex_cfg
 from app.logging_conf import get_logger
 from app.translation.cascade import CascadeTranslator
 from app.translation.gemini_provider import GeminiProvider
@@ -54,10 +55,25 @@ def _read_keys(cfg: dict) -> dict[str, str | None]:
     }
 
 
+# Modelo pro qual o Gemini ESCALA quando o primário (Flash) bate guardrail de
+# conteúdo. Pro às vezes passa onde o Flash bloqueia. Se o usuário já escolheu o
+# Pro como principal, não há pra onde escalar (_gemini_escalation devolve None).
+_GEMINI_ESCALATION_MODEL = "gemini-2.5-pro"
+
+
+def _gemini_escalation(primary_model: str) -> str | None:
+    """Pro como fallback de bloqueio — exceto se o primário já for um Pro."""
+    if "pro" in primary_model.lower():
+        return None
+    return _GEMINI_ESCALATION_MODEL
+
+
 def _build_provider(name: str, key: str, model: str | None) -> TranslationProvider:
     model = model or DEFAULT_MODELS[name]
     if name == "gemini":
-        return GeminiProvider(api_key=key, model=model)
+        return GeminiProvider(
+            api_key=key, model=model, escalation_model=_gemini_escalation(model)
+        )
     if name in PROVIDER_BASE_URLS:
         return OpenAICompatibleProvider(provider_name=name, api_key=key, model=model)
     raise TranslationConfigError(f"provider desconhecido: {name}")
@@ -76,6 +92,7 @@ def build_translator(
     """
     cfg = SettingsStore().get()
     keys = _read_keys(cfg)
+    vtx_use, vtx_project, vtx_location, vtx_creds = vertex_cfg(cfg)
 
     # Ordem do cascade vem do settings (lista de nomes); fallback default
     raw_order = cfg.get("cascade_order")
@@ -92,12 +109,31 @@ def build_translator(
     skipped: list[str] = []
     for name in order:
         key = keys.get(name)
-        if not key:
+        # Gemini em modo Vertex usa ADC (sem API key) — nao pode ser pulado por
+        # falta de key; os demais providers ainda exigem key.
+        gemini_vertex = name == "gemini" and vtx_use
+        if not key and not gemini_vertex:
             skipped.append(name)
             continue
-        model = cfg.get(f"{name}_model")  # opcional
+        # O modelo do gemini vem de `translation_model` (campo "modelo principal"
+        # da UI); os demais providers usam `<name>_model`.
+        model_key = "translation_model" if name == "gemini" else f"{name}_model"
+        model = cfg.get(model_key)  # opcional
         try:
-            providers.append(_build_provider(name, key, model))
+            if gemini_vertex:
+                gem_model = model or DEFAULT_MODELS["gemini"]
+                providers.append(
+                    GeminiProvider(
+                        model=gem_model,
+                        escalation_model=_gemini_escalation(gem_model),
+                        use_vertex=True,
+                        project=vtx_project,
+                        location=vtx_location,
+                        credentials_path=vtx_creds,
+                    )
+                )
+            else:
+                providers.append(_build_provider(name, key, model))
         except Exception as exc:
             log.warning("provider_build_failed", provider=name, error=str(exc))
             skipped.append(name)

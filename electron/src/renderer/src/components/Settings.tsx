@@ -5,6 +5,7 @@ import {
   ArrowUp,
   CircleAlert,
   CircleCheck,
+  Cloud,
   Languages,
   Layers,
   Loader2,
@@ -89,6 +90,13 @@ export function Settings(): React.JSX.Element {
   // Estilos de capa habilitados no dropdown (ids). Vazio = capa sempre automática.
   const [coverStyles, setCoverStyles] = useState<string[]>([])
 
+  // Gemini via Vertex AI (consome crédito do Google Cloud)
+  const [useVertex, setUseVertex] = useState(false)
+  const [vertexProject, setVertexProject] = useState('')
+  const [vertexLocation, setVertexLocation] = useState('us-central1')
+  const [vertexCredsPath, setVertexCredsPath] = useState('')
+  const [vertexCredsSet, setVertexCredsSet] = useState(false)
+
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null)
@@ -119,6 +127,10 @@ export function Settings(): React.JSX.Element {
           setCascadeOrder(cfg.cascade_order)
         }
         setCoverStyles(cfg.cover_styles_enabled ?? [])
+        setUseVertex(cfg.gemini_use_vertex)
+        setVertexProject(cfg.gemini_vertex_project ?? '')
+        setVertexLocation(cfg.gemini_vertex_location ?? 'us-central1')
+        setVertexCredsSet(cfg.gemini_vertex_credentials_set)
       })
       .catch((err) => setMsg({ ok: false, text: err instanceof Error ? err.message : String(err) }))
       .finally(() => setLoading(false))
@@ -149,6 +161,11 @@ export function Settings(): React.JSX.Element {
     body.cerebras_model = cerebrasModel.trim() || null
     body.cascade_order = cascadeOrder
     body.cover_styles_enabled = coverStyles
+    body.gemini_use_vertex = useVertex
+    body.gemini_vertex_project = vertexProject.trim() || null
+    body.gemini_vertex_location = vertexLocation.trim() || 'us-central1'
+    // Só envia o path se o usuário digitou algo novo (vazio = mantém o atual)
+    if (vertexCredsPath.trim()) body.gemini_vertex_credentials_path = vertexCredsPath.trim()
     try {
       const cfg = await api.updateSettings(body)
       setPwSet(cfg.smtp_password_set)
@@ -165,6 +182,11 @@ export function Settings(): React.JSX.Element {
         setCascadeOrder(cfg.cascade_order)
       }
       setCoverStyles(cfg.cover_styles_enabled ?? [])
+      setUseVertex(cfg.gemini_use_vertex)
+      setVertexProject(cfg.gemini_vertex_project ?? '')
+      setVertexLocation(cfg.gemini_vertex_location ?? 'us-central1')
+      setVertexCredsSet(cfg.gemini_vertex_credentials_set)
+      setVertexCredsPath('')
       setMsg({ ok: true, text: 'configurações salvas' })
     } catch (err) {
       setMsg({ ok: false, text: err instanceof Error ? err.message : String(err) })
@@ -320,6 +342,65 @@ export function Settings(): React.JSX.Element {
               </select>
             </div>
           </div>
+        </Card>
+
+        <Card>
+          <SectionHeader
+            icon={Cloud}
+            title="Gemini via Vertex AI (usar crédito do Google Cloud)"
+            description="A API key do AI Studio NÃO consome crédito do Google Cloud — é faturada à parte. Ligue o Vertex AI (autenticado por service account) pra que o uso do Gemini desconte do crédito do seu projeto GCP. Mesmos modelos, mesma qualidade."
+          />
+
+          <label className="font-sans flex cursor-pointer items-center gap-3 pt-2 text-[14px] text-[var(--ink-700)]">
+            <Checkbox checked={useVertex} onCheckedChange={(v) => setUseVertex(v === true)} />
+            Usar Vertex AI para o provider Gemini
+          </label>
+
+          {useVertex && (
+            <div className="mt-2 space-y-4 border-l-2 border-[var(--border-soft)] pl-4">
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                <div className="space-y-1.5">
+                  <Label htmlFor="vertex-project">Project ID (GCP)</Label>
+                  <Input
+                    id="vertex-project"
+                    placeholder="gen-lang-client-0010699825"
+                    value={vertexProject}
+                    onChange={(e) => setVertexProject(e.target.value)}
+                    className="font-mono text-[12px]"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="vertex-location">Location</Label>
+                  <Input
+                    id="vertex-location"
+                    placeholder="us-central1"
+                    value={vertexLocation}
+                    onChange={(e) => setVertexLocation(e.target.value)}
+                    className="font-mono text-[12px]"
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-1.5">
+                <Label htmlFor="vertex-creds">Caminho do JSON da service account</Label>
+                <Input
+                  id="vertex-creds"
+                  placeholder={
+                    vertexCredsSet
+                      ? '•••••••• (definido — deixe em branco p/ manter)'
+                      : '/Users/voce/.config/novel-to-epub/vertex-sa.json'
+                  }
+                  value={vertexCredsPath}
+                  onChange={(e) => setVertexCredsPath(e.target.value)}
+                  className="font-mono text-[12px]"
+                />
+                <p className="font-sans mt-1 text-[11px] text-[var(--ink-500)]">
+                  Service account com papel <strong>Vertex AI User</strong>. A chave fica só no seu
+                  disco — não compartilhe o app empacotado com ela embutida.
+                </p>
+              </div>
+            </div>
+          )}
         </Card>
 
         <Card>

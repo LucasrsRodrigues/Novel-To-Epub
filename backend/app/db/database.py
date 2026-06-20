@@ -68,6 +68,11 @@ _PENDING_COLUMNS: list[tuple[str, str, str]] = [
     ("app_settings", "groq_model", "VARCHAR(120)"),
     ("app_settings", "openrouter_model", "VARCHAR(120)"),
     ("app_settings", "cerebras_model", "VARCHAR(120)"),
+    # Gemini via Vertex AI (consome credito do Google Cloud)
+    ("app_settings", "gemini_use_vertex", "BOOLEAN DEFAULT 0"),
+    ("app_settings", "gemini_vertex_project", "VARCHAR(120)"),
+    ("app_settings", "gemini_vertex_location", "VARCHAR(40) DEFAULT 'us-central1'"),
+    ("app_settings", "gemini_vertex_credentials_path", "TEXT"),
 ]
 
 

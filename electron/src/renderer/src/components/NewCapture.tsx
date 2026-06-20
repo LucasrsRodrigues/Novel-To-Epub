@@ -4,14 +4,16 @@ import {
   CircleCheck,
   Download,
   Eye,
+  Globe,
   ImageIcon,
   Languages,
   Loader2,
   Sparkles
 } from 'lucide-react'
-import { api, type JobStatus, type NovelPreview } from '@renderer/lib/api'
+import { api, type JobStatus, type NovelPreview, type SiteInfo } from '@renderer/lib/api'
 import { useJobs } from '@renderer/context/JobsContext'
 import { COVER_STYLES } from '@renderer/lib/coverStyles'
+import { CoverStyleMixer } from '@renderer/components/CoverStyleMixer'
 import { Button } from '@renderer/components/ui/button'
 import { Input } from '@renderer/components/ui/input'
 import { Label } from '@renderer/components/ui/label'
@@ -35,6 +37,8 @@ function statusLabel(job: JobStatus): string {
       return `Erro: ${job.error ?? 'desconhecido'}`
     case 'cancelled':
       return 'Cancelado'
+    case 'interrupted':
+      return 'Interrompido'
   }
 }
 
@@ -67,7 +71,18 @@ export function NewCapture({
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [jobId, setJobId] = useState<string | null>(null)
+  // Sites suportados (vem do backend /api/sites — registry de adapters).
+  const [sites, setSites] = useState<SiteInfo[]>([])
   const { jobs } = useJobs()
+
+  // Lista de sites suportados (uma vez). Self-maintaining: novo adapter no
+  // backend aparece aqui automaticamente.
+  useEffect(() => {
+    api
+      .sites()
+      .then(setSites)
+      .catch(() => {})
+  }, [])
 
   // Carrega a curadoria de estilos das Configurações (uma vez).
   useEffect(() => {
@@ -181,7 +196,6 @@ export function NewCapture({
       void runPreview(trimmed)
     }, 800)
     return () => clearTimeout(t)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [url, sourceHasVolumes])
 
   // Auto-desliga tradução quando fonte é PT-BR
@@ -265,6 +279,47 @@ export function NewCapture({
               }}
               required
             />
+            {sites.length > 0 && (
+              <details className="group pt-1">
+                <summary className="font-sans inline-flex cursor-pointer list-none items-center gap-1.5 text-[12px] text-[var(--ink-500)] transition-colors hover:text-[var(--stamp-red)]">
+                  <Globe className="size-3.5" />
+                  Sites suportados ({sites.length})
+                  <span className="text-[var(--ink-400)] transition-transform group-open:rotate-90">
+                    ›
+                  </span>
+                </summary>
+                <ul className="mt-2 space-y-2 border-l-2 border-[var(--border-soft)] pl-3">
+                  {sites.map((site) => {
+                    const isPtNative = site.domains.some((d) => PT_NATIVE_HOSTS.includes(d))
+                    return (
+                      <li key={site.name} className="space-y-1">
+                        <div className="font-sans flex items-center gap-2 text-[13px] text-[var(--ink-700)]">
+                          <span className="font-medium capitalize">{site.name}</span>
+                          {isPtNative && (
+                            <span className="rounded bg-[var(--paper-200)] px-1.5 py-0.5 text-[9px] font-medium tracking-wide text-[var(--ink-600)] uppercase">
+                              PT-BR nativo
+                            </span>
+                          )}
+                        </div>
+                        <div className="flex flex-wrap gap-1.5">
+                          {site.domains.map((d) => (
+                            <code
+                              key={d}
+                              className="font-mono rounded bg-[var(--paper-100)] px-1.5 py-0.5 text-[11px] text-[var(--ink-600)]"
+                            >
+                              {d}
+                            </code>
+                          ))}
+                        </div>
+                      </li>
+                    )
+                  })}
+                </ul>
+                <p className="font-sans mt-2 text-[11px] text-[var(--ink-400)]">
+                  Cole a URL de uma novel de qualquer um desses sites.
+                </p>
+              </details>
+            )}
             {previewLoading && (
               <div className="font-sans flex items-center gap-2 pt-1 text-[12px] text-[var(--ink-500)]">
                 <Loader2 className="size-3.5 animate-spin" /> Lendo página da novel…
@@ -476,28 +531,15 @@ export function NewCapture({
               </div>
             </label>
 
-            {/* Seletor de estilo de arte — só faz sentido com capa IA ligada. */}
+            {/* Mistura de estilos de arte — só faz sentido com capa IA ligada. */}
             {aiCover && (
               <div className="space-y-1.5 pl-7">
-                <Label htmlFor="cover-style">Estilo de arte</Label>
-                <select
-                  id="cover-style"
+                <Label htmlFor="cover-style">Estilo de arte (mistura com pesos)</Label>
+                <CoverStyleMixer
                   value={coverStyle}
-                  onChange={(e) => setCoverStyle(e.target.value)}
-                  className={[
-                    'font-sans h-10 w-full rounded-xl border bg-[var(--paper-50)] px-4 text-sm',
-                    'border-[var(--border-medium)] text-[var(--ink-900)]',
-                    'shadow-[inset_0_1px_2px_rgba(80,50,20,0.05)]',
-                    'outline-none focus-visible:border-[var(--stamp-red)] focus-visible:bg-[var(--paper-100)] focus-visible:ring-2 focus-visible:ring-[var(--stamp-red)]/15'
-                  ].join(' ')}
-                >
-                  <option value="">Automático (IA decide pelo conteúdo)</option>
-                  {styleOptions.map((s) => (
-                    <option key={s.id} value={s.id}>
-                      {s.label}
-                    </option>
-                  ))}
-                </select>
+                  onChange={setCoverStyle}
+                  options={styleOptions}
+                />
                 <p className="font-sans text-[11px] leading-relaxed text-[var(--ink-400)]">
                   Fica salvo como estilo padrão desta novel — vem pré-selecionado na próxima
                   captura. Cure a lista em Configurações.

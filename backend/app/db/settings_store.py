@@ -25,6 +25,11 @@ _FIELDS = (
     "cerebras_model",
     "cascade_order",
     "cover_styles_enabled",
+    # Gemini via Vertex AI
+    "gemini_use_vertex",
+    "gemini_vertex_project",
+    "gemini_vertex_location",
+    "gemini_vertex_credentials_path",
 )
 
 

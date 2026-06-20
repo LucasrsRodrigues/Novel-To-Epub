@@ -57,6 +57,20 @@ class VolumeStore:
             s.refresh(row)
             return row.id
 
+    def rename(self, volume_id: int, new_title: str | None) -> bool:
+        """Troca so o ``volume_title`` do volume. Devolve False se nao existe.
+
+        Mantem o ``output_path`` (arquivo no disco nao se move); o titulo interno
+        do .epub e atualizado no rebuild subsequente, que le este novo valor.
+        """
+        with get_session() as s:
+            row = s.get(orm.GeneratedVolume, volume_id)
+            if row is None:
+                return False
+            row.volume_title = new_title
+            s.commit()
+            return True
+
     def list_for_novel(self, novel_id: int) -> list[dict]:
         """Volumes gerados desta novel, mais novos primeiro."""
         with get_session() as s:

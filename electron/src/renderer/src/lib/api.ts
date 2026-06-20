@@ -10,12 +10,18 @@ function resolveBase(): string {
 
 const API_BASE = resolveBase()
 
-export type JobStatusKind = 'queued' | 'running' | 'done' | 'error' | 'cancelled'
+export type JobStatusKind = 'queued' | 'running' | 'done' | 'error' | 'cancelled' | 'interrupted' // captura pendente re-hidratada após restart do backend
 
 export interface TranslationFailure {
   chapter: number
   title: string
   reason: string // mensagem da exception (inclui finish_reason/block_reason p/ Gemini)
+}
+
+export interface DownloadFailure {
+  chapter: number
+  title: string
+  reason: string // por que o cap não pôde ser baixado (404, DOM mudou, mirror quebrado)
 }
 
 export interface JobStatus {
@@ -37,6 +43,8 @@ export interface JobStatus {
   error: string | null
   translation_failed: number // caps que ficaram em EN (falha)
   translation_failures: TranslationFailure[] // detalhe por cap (preenchido qdo job termina)
+  download_failed: number // caps que não puderam ser baixados (pulados, fora do EPUB)
+  download_failures: DownloadFailure[] // detalhe por cap pulado (preenchido qdo job termina)
   cover_error: string | null // motivo da falha de capa por IA (None = ok/não pedida)
   volume_id: number | null // id do volume persistido (None enquanto job nao terminou)
   created_at: string
@@ -123,6 +131,11 @@ export interface AppSettingsView {
   default_models: Record<string, string>
   cascade_order: string[]
   cover_styles_enabled: string[]
+  // Gemini via Vertex AI (consome crédito do Google Cloud)
+  gemini_use_vertex: boolean
+  gemini_vertex_project: string | null
+  gemini_vertex_location: string
+  gemini_vertex_credentials_set: boolean
 }
 
 export interface SettingsUpdate {
@@ -144,6 +157,11 @@ export interface SettingsUpdate {
   cerebras_model?: string | null
   cascade_order?: string[]
   cover_styles_enabled?: string[]
+  // Gemini via Vertex AI
+  gemini_use_vertex?: boolean
+  gemini_vertex_project?: string | null
+  gemini_vertex_location?: string | null
+  gemini_vertex_credentials_path?: string | null
 }
 
 export type CoverKind = 'titled' | 'raw' | 'phone' | 'pc' | 'pc_hd'
@@ -175,6 +193,14 @@ export interface ChapterDetail {
   html_pt: string | null
   translation_source: string | null
   language: string | null
+}
+
+export interface Mirror {
+  id: number
+  novel_id: number
+  source: string // nome do adapter (ex: "novelfull")
+  source_url: string
+  priority: number
 }
 
 export interface VolumeOut {
@@ -299,6 +325,9 @@ export const api = {
   getDownload: (id: string) => http<JobStatus>(`/api/downloads/${id}`),
   cancelDownload: (id: string) =>
     http<JobStatus>(`/api/downloads/${id}/cancel`, { method: 'POST' }),
+  resumeDownload: (id: string) =>
+    http<JobStatus>(`/api/downloads/${id}/resume`, { method: 'POST' }),
+  discardDownload: (id: string) => http<void>(`/api/downloads/${id}`, { method: 'DELETE' }),
   sendToKindle: (id: string) =>
     http<{ status: string; to: string }>(`/api/downloads/${id}/kindle`, { method: 'POST' }),
   regenerateCover: (id: string, coverStyle?: string | null) =>
@@ -310,7 +339,22 @@ export const api = {
   getNovelDetail: (novelId: number) => http<NovelDetail>(`/api/library/${novelId}`),
   getNovelVolumes: (novelId: number) => http<VolumeOut[]>(`/api/library/${novelId}/volumes`),
   getGlossary: (novelId: number) => http<GlossaryEntry[]>(`/api/library/${novelId}/glossary`),
+  listMirrors: (novelId: number) => http<Mirror[]>(`/api/library/${novelId}/mirrors`),
+  addMirror: (novelId: number, url: string) =>
+    http<Mirror>(`/api/library/${novelId}/mirrors`, {
+      method: 'POST',
+      body: JSON.stringify({ url })
+    }),
+  deleteMirror: (mirrorId: number) => http<void>(`/api/mirrors/${mirrorId}`, { method: 'DELETE' }),
   volumeFileUrl: (id: number) => `${API_BASE}/api/volumes/${id}/file`,
+  allVolumesZipUrl: (novelId: number) => `${API_BASE}/api/library/${novelId}/volumes.zip`,
+  sendAllToKindle: (novelId: number) =>
+    http<{
+      to: string
+      sent: number
+      total: number
+      results: { volume_id: number; title: string; ok: boolean; error?: string }[]
+    }>(`/api/library/${novelId}/kindle-all`, { method: 'POST' }),
   // --- Galeria de capas ---
   listCovers: (novelId: number) => http<CoverOut[]>(`/api/library/${novelId}/covers`),
   coverFileUrl: (
@@ -341,6 +385,11 @@ export const api = {
     }),
   deleteVolume: (id: number) => http<void>(`/api/volumes/${id}`, { method: 'DELETE' }),
   rebuildVolume: (id: number) => http<VolumeOut>(`/api/volumes/${id}/rebuild`, { method: 'POST' }),
+  renameVolume: (id: number, volumeTitle: string) =>
+    http<VolumeOut>(`/api/volumes/${id}/rename`, {
+      method: 'POST',
+      body: JSON.stringify({ volume_title: volumeTitle })
+    }),
   listChapters: (
     novelId: number,
     opts: { language?: string; start?: number; end?: number } = {}

@@ -8,9 +8,12 @@ import {
   FileEdit,
   Hammer,
   ImageIcon,
+  Check,
   Languages,
+  Link2,
   Loader2,
   Monitor,
+  Pencil,
   Plus,
   RefreshCw,
   Send,
@@ -26,11 +29,12 @@ import {
   type WallpaperFmt,
   type GlossaryEntry,
   type JobStatus,
+  type Mirror,
   type NovelDetail as NovelDetailT,
   type VolumeOut
 } from '@renderer/lib/api'
 import { useJobs } from '@renderer/context/JobsContext'
-import { COVER_STYLES, COVER_STYLE_LABELS } from '@renderer/lib/coverStyles'
+import { COVER_STYLES, formatStyleSpec } from '@renderer/lib/coverStyles'
 import { Button } from '@renderer/components/ui/button'
 import { Folio } from '@renderer/components/decorative/Folio'
 import { Ribbon } from '@renderer/components/decorative/Ribbon'
@@ -58,6 +62,11 @@ export function NovelDetail({
   // Estilos de capa habilitados nas Configurações (ids). Definem o comportamento
   // do botão de capa: 0 = automático, 1 = direto, 2+ = menu de escolha.
   const [enabledStyles, setEnabledStyles] = useState<string[]>([])
+  // Ações em lote da seção Volumes (baixar tudo / enviar tudo pro Kindle).
+  const [kindleAllBusy, setKindleAllBusy] = useState(false)
+  const [bulkMsg, setBulkMsg] = useState<{ ok: boolean; text: string } | null>(null)
+  // Download "Baixar tudo": null = ocioso; -1 = preparando (sem total); 0..1 = transferindo.
+  const [downloadProgress, setDownloadProgress] = useState<number | null>(null)
   const { jobs } = useJobs()
 
   useEffect(() => {
@@ -119,6 +128,95 @@ export function NovelDetail({
       .map((j) => ({ kind: 'job' as const, job: j, createdAt: j.created_at }))
     return [...activeJobs, ...persisted].sort((a, b) => b.createdAt.localeCompare(a.createdAt))
   }, [jobs, novel, persistedVolumes])
+
+  // Volumes "prontos" (tradução completa) — alvo das ações em lote. Mesma regra
+  // que esconde .epub/Kindle no card quando faltam caps traduzidos.
+  const readyVolumes = persistedVolumes.filter(
+    (v) => !(v.translate_to && v.translation_failed > 0)
+  )
+
+  // Baixa o .zip via fetch (não <a download>) pra ter feedback real: estado de
+  // "preparando", barra de progresso na transferência, e erro visível se o
+  // backend recusar (ex.: nenhum volume pronto). Salva via blob URL.
+  async function downloadAll(): Promise<void> {
+    setBulkMsg(null)
+    setDownloadProgress(-1) // preparando (backend está montando o zip)
+    try {
+      const res = await fetch(api.allVolumesZipUrl(novelId))
+      if (!res.ok) {
+        const detail = await res.json().catch(() => null)
+        throw new Error(detail?.detail || `falha no download (${res.status})`)
+      }
+      const total = Number(res.headers.get('Content-Length')) || 0
+      let blob: Blob
+      if (res.body && total > 0) {
+        const reader = res.body.getReader()
+        const chunks: Uint8Array[] = []
+        let received = 0
+        for (;;) {
+          const { done, value } = await reader.read()
+          if (done) break
+          chunks.push(value)
+          received += value.length
+          setDownloadProgress(received / total)
+        }
+        blob = new Blob(chunks as BlobPart[], { type: 'application/zip' })
+      } else {
+        blob = await res.blob()
+      }
+      const name = `${slugifyName(novel?.title ?? 'volumes')}.zip`
+      const mb = (blob.size / 1048576).toFixed(1).replace('.', ',')
+      // No Electron, salva via IPC (save dialog + fs) — confiável e dá o caminho.
+      // No browser (dev:web), cai no download por blob URL.
+      type FileSaver = (
+        n: string,
+        d: ArrayBuffer
+      ) => Promise<{ canceled: boolean; filePath?: string }>
+      const saver = (globalThis as { api?: { saveFile?: FileSaver } }).api?.saveFile
+      if (saver) {
+        const r = await saver(name, await blob.arrayBuffer())
+        if (r.canceled) {
+          setBulkMsg({ ok: false, text: 'download cancelado' })
+          return
+        }
+        setBulkMsg({ ok: true, text: `salvo (${mb} MB): ${r.filePath}` })
+      } else {
+        const url = URL.createObjectURL(blob)
+        const a = document.createElement('a')
+        a.href = url
+        a.download = name
+        document.body.appendChild(a)
+        a.click()
+        a.remove()
+        URL.revokeObjectURL(url)
+        setBulkMsg({ ok: true, text: `zip pronto (${mb} MB) — escolha onde salvar` })
+      }
+    } catch (err) {
+      setBulkMsg({ ok: false, text: err instanceof Error ? err.message : String(err) })
+    } finally {
+      setDownloadProgress(null)
+    }
+  }
+
+  async function sendAllKindle(): Promise<void> {
+    setKindleAllBusy(true)
+    setBulkMsg(null)
+    try {
+      const r = await api.sendAllToKindle(novelId)
+      const failed = r.results.filter((x) => !x.ok)
+      setBulkMsg({
+        ok: failed.length === 0,
+        text:
+          failed.length === 0
+            ? `${r.sent} volume(s) enviados para ${r.to}`
+            : `${r.sent}/${r.total} enviados — falharam: ${failed.map((f) => f.title).join(', ')}`
+      })
+    } catch (err) {
+      setBulkMsg({ ok: false, text: err instanceof Error ? err.message : String(err) })
+    } finally {
+      setKindleAllBusy(false)
+    }
+  }
 
   const characters = glossary?.filter((e) => e.kind === 'character').slice(0, 6) ?? []
 
@@ -266,12 +364,69 @@ export function NovelDetail({
 
       {/* Volumes section */}
       <section className="space-y-3">
-        <h3 className="font-display flex items-baseline gap-3 text-lg font-medium tracking-tight">
-          Volumes
-          <span className="font-sans text-[11px] tracking-[0.16em] uppercase text-[var(--ink-400)]">
-            {volumes.length} {volumes.length === 1 ? 'edição' : 'edições'}
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <h3 className="font-display flex items-baseline gap-3 text-lg font-medium tracking-tight">
+            Volumes
+            <span className="font-sans text-[11px] tracking-[0.16em] uppercase text-[var(--ink-400)]">
+              {volumes.length} {volumes.length === 1 ? 'edição' : 'edições'}
+            </span>
+          </h3>
+          {readyVolumes.length >= 2 && (
+            <div className="flex flex-wrap items-center gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={downloadAll}
+                disabled={downloadProgress !== null}
+                title={`Baixa os ${readyVolumes.length} volumes prontos num único .zip`}
+              >
+                {downloadProgress !== null ? (
+                  <Loader2 className="size-3.5 animate-spin" />
+                ) : (
+                  <Download className="size-3.5" />
+                )}
+                {downloadProgress === -1
+                  ? 'Preparando…'
+                  : downloadProgress !== null
+                    ? `Baixando ${Math.round(downloadProgress * 100)}%`
+                    : 'Baixar tudo'}
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={sendAllKindle}
+                disabled={kindleAllBusy}
+                title={`Envia os ${readyVolumes.length} volumes prontos pro Kindle`}
+              >
+                {kindleAllBusy ? (
+                  <Loader2 className="size-3.5 animate-spin" />
+                ) : (
+                  <Send className="size-3.5" />
+                )}
+                Kindle tudo
+              </Button>
+            </div>
+          )}
+        </div>
+        {/* Barra de progresso do download (determinada na transferência). */}
+        {downloadProgress !== null && downloadProgress >= 0 && (
+          <div className="h-1.5 w-full overflow-hidden rounded-full bg-[var(--paper-200)]">
+            <div
+              className="h-full rounded-full bg-[var(--stamp-red)] transition-[width] duration-150"
+              style={{ width: `${Math.round(downloadProgress * 100)}%` }}
+            />
+          </div>
+        )}
+        {bulkMsg && (
+          <span
+            className={[
+              'font-sans block text-[11px]',
+              bulkMsg.ok ? 'text-[var(--book-3)]' : 'text-[var(--ink-stamp)]'
+            ].join(' ')}
+          >
+            {bulkMsg.text}
           </span>
-        </h3>
+        )}
         {volumes.length === 0 ? (
           <p className="font-sans text-[13px] text-[var(--ink-500)]">
             Nenhum volume desta novel foi gerado ainda. Use{' '}
@@ -305,6 +460,13 @@ export function NovelDetail({
           </ul>
         )}
       </section>
+
+      {/* Fontes alternativas (mirrors) — resiliência a cap quebrado */}
+      <MirrorsSection
+        novelId={novelId}
+        primarySource={novel.source}
+        primaryUrl={novel.source_url}
+      />
 
       {/* Galeria de capas geradas por IA */}
       <CoverGallery
@@ -381,6 +543,168 @@ function StatTile({
         {label}
       </div>
     </Tag>
+  )
+}
+
+/** Fontes alternativas (mirrors) da novel. Permite ligar outro site à MESMA
+ *  obra (mesmo novel_id → cache/tradução/glossário/capa preservados). Quando o
+ *  site primário falha num capítulo, o backend cai pra essas fontes casando
+ *  pelo número do título. */
+function MirrorsSection({
+  novelId,
+  primarySource,
+  primaryUrl
+}: {
+  novelId: number
+  primarySource: string
+  primaryUrl: string
+}): React.JSX.Element {
+  const [mirrors, setMirrors] = useState<Mirror[]>([])
+  const [loaded, setLoaded] = useState(false)
+  const [url, setUrl] = useState('')
+  const [adding, setAdding] = useState(false)
+  const [removingId, setRemovingId] = useState<number | null>(null)
+  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null)
+
+  useEffect(() => {
+    let active = true
+    api
+      .listMirrors(novelId)
+      .then((m) => active && setMirrors(m))
+      .catch(() => {})
+      .finally(() => active && setLoaded(true))
+    return () => {
+      active = false
+    }
+  }, [novelId])
+
+  async function add(): Promise<void> {
+    const u = url.trim()
+    if (!u || adding) return
+    setAdding(true)
+    setMsg(null)
+    try {
+      const m = await api.addMirror(novelId, u)
+      setMirrors((prev) => [...prev.filter((x) => x.id !== m.id), m])
+      setUrl('')
+      setMsg({ ok: true, text: `fonte adicionada (${m.source})` })
+    } catch (e) {
+      setMsg({ ok: false, text: e instanceof Error ? e.message : 'falha ao adicionar' })
+    } finally {
+      setAdding(false)
+    }
+  }
+
+  async function remove(id: number): Promise<void> {
+    setRemovingId(id)
+    try {
+      await api.deleteMirror(id)
+      setMirrors((prev) => prev.filter((x) => x.id !== id))
+    } catch {
+      // mantém na lista se falhar
+    } finally {
+      setRemovingId(null)
+    }
+  }
+
+  return (
+    <section className="space-y-3">
+      <h3 className="font-display flex items-baseline gap-3 text-lg font-medium tracking-tight">
+        Fontes alternativas
+        <span className="font-sans text-[11px] tracking-[0.16em] uppercase text-[var(--ink-400)]">
+          fallback de capítulo
+        </span>
+      </h3>
+      <p className="font-sans text-[13px] leading-snug text-[var(--ink-500)]">
+        Ligue outro site à <strong className="font-semibold">mesma obra</strong>. Quando o site
+        principal falhar num capítulo, o app busca esse capítulo nas fontes abaixo (casando pelo
+        número do título) — sem perder cache, tradução ou capa.
+      </p>
+
+      <ul className="space-y-2">
+        {/* Fonte primária (read-only) */}
+        <li className="flex items-center gap-3 rounded-xl border border-[var(--border-soft)] bg-[var(--paper-100)] px-4 py-2.5">
+          <Link2 className="size-4 shrink-0 text-[var(--ink-400)]" />
+          <div className="min-w-0 flex-1">
+            <div className="font-sans flex items-center gap-2 text-[13px] font-medium text-[var(--ink-900)]">
+              {primarySource}
+              <span className="font-sans rounded-full bg-[var(--paper-300)] px-2 py-0.5 text-[10px] tracking-[0.12em] uppercase text-[var(--ink-500)]">
+                principal
+              </span>
+            </div>
+            <div className="font-mono truncate text-[11px] text-[var(--ink-400)]">{primaryUrl}</div>
+          </div>
+        </li>
+
+        {mirrors.map((m) => (
+          <li
+            key={m.id}
+            className="flex items-center gap-3 rounded-xl border border-[var(--border-soft)] bg-[var(--paper-50)] px-4 py-2.5"
+          >
+            <Link2 className="size-4 shrink-0 text-[var(--ink-400)]" />
+            <div className="min-w-0 flex-1">
+              <div className="font-sans text-[13px] font-medium text-[var(--ink-900)]">
+                {m.source}
+              </div>
+              <div className="font-mono truncate text-[11px] text-[var(--ink-400)]">
+                {m.source_url}
+              </div>
+            </div>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => remove(m.id)}
+              disabled={removingId === m.id}
+              aria-label="remover fonte"
+            >
+              {removingId === m.id ? (
+                <Loader2 className="size-3.5 animate-spin" />
+              ) : (
+                <Trash2 className="size-3.5" />
+              )}
+            </Button>
+          </li>
+        ))}
+
+        {loaded && mirrors.length === 0 && (
+          <li className="font-sans text-[12px] italic text-[var(--ink-400)]">
+            Nenhuma fonte alternativa ainda.
+          </li>
+        )}
+      </ul>
+
+      <div className="flex items-center gap-2">
+        <input
+          type="url"
+          value={url}
+          onChange={(e) => setUrl(e.target.value)}
+          onKeyDown={(e) => e.key === 'Enter' && add()}
+          placeholder="https://outro-site.com/novel/..."
+          className="font-mono flex-1 rounded-lg border border-[var(--border-soft)] bg-[var(--paper-50)] px-3 py-2 text-[12px] text-[var(--ink-900)] outline-none focus:border-[var(--ink-300)]"
+        />
+        <Button size="sm" onClick={add} disabled={adding || !url.trim()}>
+          {adding ? (
+            <>
+              <Loader2 className="size-3.5 animate-spin" /> validando…
+            </>
+          ) : (
+            <>
+              <Plus className="size-3.5" /> Adicionar fonte
+            </>
+          )}
+        </Button>
+      </div>
+      {msg && (
+        <p
+          className={[
+            'font-sans text-[12px]',
+            msg.ok ? 'text-[var(--ink-500)]' : 'text-[var(--ink-stamp)]'
+          ].join(' ')}
+        >
+          {msg.text}
+        </p>
+      )}
+    </section>
   )
 }
 
@@ -477,7 +801,7 @@ function CoverGallery({
   if (!loaded || covers.length === 0) return null
 
   const selected = covers.find((c) => c.id === selectedId) ?? null
-  const styleLabel = defaultStyle ? (COVER_STYLE_LABELS[defaultStyle] ?? defaultStyle) : null
+  const styleLabel = formatStyleSpec(defaultStyle)
   const cost = (covers.length * 0.2).toFixed(2).replace('.', ',')
 
   async function regenerateAll(): Promise<void> {
@@ -799,6 +1123,9 @@ function PersistedVolumeRow({
   onOpenEditor: (vol: VolumeOut) => void
 }): React.JSX.Element {
   const [sending, setSending] = useState(false)
+  const [editingTitle, setEditingTitle] = useState(false)
+  const [titleDraft, setTitleDraft] = useState(vol.volume_title ?? '')
+  const [savingTitle, setSavingTitle] = useState(false)
   const [regenerating, setRegenerating] = useState(false)
   const [retrying, setRetrying] = useState(false)
   const [rebuilding, setRebuilding] = useState(false)
@@ -826,6 +1153,33 @@ function PersistedVolumeRow({
       setSendMsg({ ok: false, text: err instanceof Error ? err.message : String(err) })
     } finally {
       setSending(false)
+    }
+  }
+
+  // Edita SO o título do volume: o backend re-compõe o texto sobre a arte da
+  // capa já existente (sem IA, custo zero) e remonta o .epub. Sem re-baixar.
+  async function saveTitle(): Promise<void> {
+    const next = titleDraft.trim()
+    if (!next || next === (vol.volume_title ?? '').trim()) {
+      setEditingTitle(false)
+      return
+    }
+    setSavingTitle(true)
+    setSendMsg(null)
+    try {
+      const updated = await api.renameVolume(vol.id, next)
+      onVolumeUpdated(updated)
+      setEditingTitle(false)
+      setSendMsg({
+        ok: true,
+        text: vol.ai_cover
+          ? 'título atualizado — capa recomposta + EPUB remontado (sem custo)'
+          : 'título atualizado — EPUB remontado (sem custo)'
+      })
+    } catch (err) {
+      setSendMsg({ ok: false, text: err instanceof Error ? err.message : String(err) })
+    } finally {
+      setSavingTitle(false)
     }
   }
 
@@ -951,9 +1305,61 @@ function PersistedVolumeRow({
     >
       {/* Título + meta: linha própria, largura total — nunca é esmagado pelos botões. */}
       <div className="min-w-0">
-        <div className="font-display text-[15px] font-medium leading-snug tracking-tight">
-          {vol.volume_title ?? `Capítulos ${vol.start}–${vol.end ?? '?'}`}
-        </div>
+        {editingTitle ? (
+          <div className="flex items-center gap-1.5">
+            <input
+              autoFocus
+              value={titleDraft}
+              onChange={(e) => setTitleDraft(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') void saveTitle()
+                else if (e.key === 'Escape') setEditingTitle(false)
+              }}
+              disabled={savingTitle}
+              placeholder="Título do volume"
+              className="font-display min-w-0 flex-1 rounded-md border border-[var(--border-medium)] bg-[var(--paper-50)] px-2 py-1 text-[15px] font-medium leading-snug tracking-tight outline-none focus:border-[var(--stamp-red)]"
+            />
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={saveTitle}
+              disabled={savingTitle}
+              title="Salvar título: recompõe a capa sobre a arte atual + remonta o EPUB (sem custo)"
+            >
+              {savingTitle ? (
+                <Loader2 className="size-3.5 animate-spin" />
+              ) : (
+                <Check className="size-3.5" />
+              )}
+            </Button>
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => setEditingTitle(false)}
+              disabled={savingTitle}
+              title="Cancelar"
+            >
+              <X className="size-3.5" />
+            </Button>
+          </div>
+        ) : (
+          <div className="group flex items-center gap-1.5">
+            <span className="font-display min-w-0 truncate text-[15px] font-medium leading-snug tracking-tight">
+              {vol.volume_title ?? `Capítulos ${vol.start}–${vol.end ?? '?'}`}
+            </span>
+            <button
+              type="button"
+              onClick={() => {
+                setTitleDraft(vol.volume_title ?? '')
+                setEditingTitle(true)
+              }}
+              title="Editar o título do volume (recompõe a capa sobre a arte atual + remonta o EPUB, sem gerar arte nova)"
+              className="shrink-0 rounded p-0.5 text-[var(--ink-400)] opacity-0 transition hover:text-[var(--ink-700)] group-hover:opacity-100"
+            >
+              <Pencil className="size-3.5" />
+            </button>
+          </div>
+        )}
         <div className="font-sans mt-0.5 text-[11px] tracking-wide text-[var(--ink-500)]">
           caps {vol.start}–{vol.end ?? '?'} · {vol.translate_to ?? 'original'}
           {vol.ai_cover && ' · capa IA'}
@@ -1136,6 +1542,51 @@ function PersistedVolumeRow({
 
 function ActiveJobRow({ job }: { job: JobStatus }): React.JSX.Element {
   const pct = job.total ? Math.round((job.done / job.total) * 100) : 0
+  const [resuming, setResuming] = useState(false)
+  const [discarding, setDiscarding] = useState(false)
+  const [err, setErr] = useState<string | null>(null)
+  // Captura pendente (cancelada, com erro, ou interrompida por restart) pode ser
+  // retomada: o cache pula o que já foi baixado/traduzido, só falta o resto.
+  const resumable =
+    job.status === 'cancelled' || job.status === 'error' || job.status === 'interrupted'
+
+  const label =
+    job.status === 'error'
+      ? 'erro'
+      : job.status === 'cancelled'
+        ? 'cancelado'
+        : job.status === 'interrupted'
+          ? 'interrompido'
+          : job.status === 'queued'
+            ? 'na fila'
+            : 'em andamento'
+
+  async function resume(): Promise<void> {
+    setResuming(true)
+    setErr(null)
+    try {
+      // Re-roda o MESMO job no backend (preserva cover_style/skip_chapters etc).
+      // O JobsContext atualiza a linha via WS — sai de 'cancelado' p/ 'na fila'.
+      await api.resumeDownload(job.id)
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : 'falha ao continuar')
+    } finally {
+      setResuming(false)
+    }
+  }
+
+  async function discard(): Promise<void> {
+    setDiscarding(true)
+    setErr(null)
+    try {
+      // Remove a captura pendente + intenção persistida. Não toca no cache.
+      await api.discardDownload(job.id)
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : 'falha ao descartar')
+      setDiscarding(false)
+    }
+  }
+
   return (
     <li
       className={[
@@ -1150,9 +1601,40 @@ function ActiveJobRow({ job }: { job: JobStatus }): React.JSX.Element {
         <div className="font-sans text-[11px] tracking-wide text-[var(--ink-500)]">
           caps {job.start}–{job.end ?? '?'} · {job.translate_to ?? 'original'} · {pct}%
         </div>
+        {err && <div className="font-sans mt-1 text-[11px] text-[var(--ink-stamp)]">{err}</div>}
       </div>
-      <span className="font-sans text-[10px] tracking-[0.18em] uppercase text-[var(--ink-400)]">
-        {job.status === 'error' ? 'erro' : 'em andamento'}
+      {resumable && (
+        <>
+          <Button variant="outline" size="sm" onClick={resume} disabled={resuming || discarding}>
+            {resuming ? (
+              <Loader2 className="size-3.5 animate-spin" />
+            ) : (
+              <RefreshCw className="size-3.5" />
+            )}
+            Continuar captura
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={discard}
+            disabled={resuming || discarding}
+            aria-label="descartar captura"
+          >
+            {discarding ? (
+              <Loader2 className="size-3.5 animate-spin" />
+            ) : (
+              <Trash2 className="size-3.5" />
+            )}
+          </Button>
+        </>
+      )}
+      <span
+        className={[
+          'font-sans text-[10px] tracking-[0.18em] uppercase',
+          resumable ? 'text-[var(--ink-stamp)]' : 'text-[var(--ink-400)]'
+        ].join(' ')}
+      >
+        {label}
       </span>
     </li>
   )

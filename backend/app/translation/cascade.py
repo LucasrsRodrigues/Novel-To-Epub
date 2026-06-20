@@ -19,7 +19,10 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 
 from app.logging_conf import get_logger
-from app.translation.gemini_provider import GeminiTranslationError
+from app.translation.gemini_provider import (
+    GeminiContentBlockedError,
+    GeminiTranslationError,
+)
 from app.translation.glossary import GlossaryEntry
 from app.translation.openai_compatible_provider import (
     OpenAICompatTranslationError,
@@ -199,6 +202,22 @@ class CascadeTranslator(TranslationProvider):
                         provider=state.provider.name, chapter=chapter_index,
                         error=state.last_error,
                     )
+                continue
+
+            except GeminiContentBlockedError as exc:
+                # Bloqueio de conteúdo: PERMANENTE p/ este cap e NÃO reflete saúde
+                # do provider. Por isso NÃO marca cooldown — senão o Gemini ficaria
+                # "frio" e os capítulos seguintes (que traduziriam normal) seriam
+                # pulados. Tenta o próximo provider; se ninguém traduzir, o cap cai
+                # p/ edição manual (orchestrator mantém em EN + UI rotula pela msg).
+                last_exc = exc
+                state.last_error = str(exc)[:200]
+                self._record_failure(state, chapter_index, exc)
+                log.warning(
+                    "cascade_provider_content_blocked",
+                    provider=state.provider.name, chapter=chapter_index,
+                    error=state.last_error,
+                )
                 continue
 
             except GeminiTranslationError as exc:

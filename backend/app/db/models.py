@@ -43,8 +43,9 @@ class Novel(Base):
     wiki_status: Mapped[str] = mapped_column(String(20), default="unknown")
     # Estilo de arte default pra capa por IA desta novel (id em cover_styles).
     # Definido pela ultima escolha explicita de estilo num download/regerar.
-    # None = sem default (cai no modo automatico).
-    default_cover_style: Mapped[str | None] = mapped_column(String(60), nullable=True)
+    # None = sem default (cai no modo automatico). Pode ser um id unico OU um spec
+    # de mistura ponderada "id:peso,id:peso,..." (ver image_gen.cover_styles).
+    default_cover_style: Mapped[str | None] = mapped_column(String(200), nullable=True)
     # Ancora de coesao da SERIE: paleta (nomes de cor) + chave de luz, extraida da
     # 1a capa gerada e injetada no prompt das proximas pra todas combinarem.
     series_palette: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -86,6 +87,77 @@ class Chapter(Base):
     novel: Mapped["Novel"] = relationship(back_populates="chapters")
 
 
+class NovelMirror(Base):
+    """Fonte alternativa (mirror) de uma novel ja capturada.
+
+    Deixa o orchestrator cair pra outro site quando o primario falha num
+    capitulo — SEM trocar a identidade da novel: mesmo ``novel_id``, entao
+    cache de capitulos, traducao, glossario e capa ficam todos preservados. O
+    casamento de capitulo entre mirrors e por NUMERO no titulo
+    (``ChapterRef.number``), nunca por posicao, por causa do off-by-N entre
+    sites. O proprio ``Novel.source_url`` e a fonte primaria (prioridade 0
+    implicita); esta tabela guarda so as alternativas.
+    """
+
+    __tablename__ = "novel_mirrors"
+    __table_args__ = (
+        UniqueConstraint("novel_id", "source_url", name="uq_mirror_novel_url"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    novel_id: Mapped[int] = mapped_column(
+        ForeignKey("novels.id", ondelete="CASCADE"), index=True
+    )
+    source: Mapped[str] = mapped_column(String(50))  # nome do adapter (ex: "novelfull")
+    source_url: Mapped[str] = mapped_column(Text)
+    # Menor = tentado antes. Default 100 (depois do primario, que e 0 implicito).
+    priority: Mapped[int] = mapped_column(Integer, default=100)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+
+
+class CaptureIntent(Base):
+    """Intencao de captura persistida — espelha os params de um job de download
+    que ainda NAO concluiu com sucesso.
+
+    Jobs vivem em memoria e somem no restart do backend; esta tabela guarda o
+    suficiente pra recriar (re-hidratar) um job interrompido/cancelado e oferecer
+    "Continuar captura" mesmo depois de fechar e reabrir o app. Apagada quando o
+    job conclui (vira ``GeneratedVolume``). Chave por ``job_id`` (o mesmo id do
+    job em memoria, reutilizado na re-hidratacao).
+    """
+
+    __tablename__ = "capture_intents"
+    __table_args__ = (UniqueConstraint("job_id", name="uq_intent_job"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    job_id: Mapped[str] = mapped_column(String(32), index=True)
+    source_url: Mapped[str] = mapped_column(Text)
+    # Titulo da novel quando conhecido (preenchido apos fetch_novel) — so p/ exibir.
+    title: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    # --- params do DownloadRequest (1:1 com o Job) ---
+    start: Mapped[int] = mapped_column(Integer, default=1)
+    end: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    with_cover: Mapped[bool] = mapped_column(Boolean, default=True)
+    translate_to: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    volume_title: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    ai_cover: Mapped[bool] = mapped_column(Boolean, default=False)
+    cover_style: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    skip_chapters: Mapped[str] = mapped_column(String(500), default="")  # CSV de indices
+    preserve_cover: Mapped[bool] = mapped_column(Boolean, default=False)
+    replace_volume_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # Estado no momento em que foi persistida (queued|running|cancelled|error).
+    # Na re-hidratacao, queued/running viram "interrupted".
+    status: Mapped[str] = mapped_column(String(20), default="queued")
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+
 class AppSettings(Base):
     """Configuracoes editaveis (linha unica, id=1). Inclui credenciais SMTP + traducao."""
 
@@ -116,6 +188,16 @@ class AppSettings(Base):
     cascade_order: Mapped[str] = mapped_column(
         String(200), default="groq,openrouter,cerebras,gemini"
     )
+    # --- Gemini via Vertex AI (mai 2026) ---
+    # Quando ligado, o provider gemini usa Vertex AI (autenticado por service
+    # account) em vez da API key do AI Studio. Vertex e faturado no billing do
+    # projeto GCP — e o jeito de consumir credito do Google Cloud.
+    gemini_use_vertex: Mapped[bool] = mapped_column(Boolean, default=False)
+    gemini_vertex_project: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    gemini_vertex_location: Mapped[str] = mapped_column(String(40), default="us-central1")
+    # Caminho do JSON da service account (creds do Vertex). Fica em disco —
+    # ok p/ uso pessoal; nao commitar nem distribuir o app com ele embutido.
+    gemini_vertex_credentials_path: Mapped[str | None] = mapped_column(Text, nullable=True)
     # CSV dos ids de estilo de capa habilitados no dropdown (ver image_gen.cover_styles).
     # Vazio = nenhum estilo fixo, capa sempre no modo automatico (IA decide).
     cover_styles_enabled: Mapped[str] = mapped_column(String(500), default="")

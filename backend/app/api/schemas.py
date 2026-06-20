@@ -67,10 +67,29 @@ class RegenerateCoverRequest(BaseModel):
     cover_style: str | None = None
 
 
+class RenameVolumeRequest(BaseModel):
+    """Body do POST de renomear volume. Re-compoe o texto da capa (sem IA) +
+    remonta o .epub com o novo titulo."""
+
+    volume_title: str
+
+
 class TranslationFailure(BaseModel):
     chapter: int
     title: str
     reason: str  # mensagem da exception (inclui finish_reason/block_reason p/ Gemini)
+
+
+class DownloadFailure(BaseModel):
+    """Capitulo que nao pode ser baixado (404, DOM mudou, mirror quebrado).
+
+    Mesma forma que TranslationFailure, mas semantica distinta: aqui o cap nem
+    entrou no EPUB (pulado), la o cap entrou mas ficou em EN.
+    """
+
+    chapter: int
+    title: str
+    reason: str
 
 
 class UsageSummary(BaseModel):
@@ -218,6 +237,10 @@ class JobStatus(BaseModel):
     # Detalhe por capitulo que falhou (mesmo length que translation_failed).
     # UI mostra num expand pra o usuario entender por que cada cap ficou em EN.
     translation_failures: list[TranslationFailure] = []
+    # Quantos capitulos nao puderam ser baixados (pulados, fora do EPUB). 0 = ok.
+    download_failed: int = 0
+    # Detalhe por capitulo que falhou no download (mesmo length que download_failed).
+    download_failures: list[DownloadFailure] = []
     # Motivo da falha de capa por IA (rate-limit, sem key, bloqueio). None = ok
     # ou nao pedida. UI mostra pro usuario em vez de falhar em silencio.
     cover_error: str | None = None
@@ -265,6 +288,20 @@ class NovelPreviewOut(BaseModel):
     # Estilo de capa default desta novel, se ja foi capturada antes. None = nova
     # ou sem default. UI usa pra pre-selecionar o seletor de estilo na captura.
     default_cover_style: str | None = None
+
+
+class MirrorOut(BaseModel):
+    """Fonte alternativa (mirror) de uma novel — ver app.db.models.NovelMirror."""
+
+    id: int
+    novel_id: int
+    source: str       # nome do adapter (ex: "novelfull")
+    source_url: str
+    priority: int
+
+
+class AddMirrorRequest(BaseModel):
+    url: str
 
 
 class NovelSummary(BaseModel):
@@ -317,6 +354,11 @@ class SettingsOut(BaseModel):
     cascade_order: list[str]  # ex: ["groq","openrouter","cerebras","gemini"]
     # Ids de estilo de capa habilitados no dropdown (ver image_gen.cover_styles).
     cover_styles_enabled: list[str]
+    # --- Gemini via Vertex AI ---
+    gemini_use_vertex: bool
+    gemini_vertex_project: str | None
+    gemini_vertex_location: str
+    gemini_vertex_credentials_set: bool  # nunca expomos o path
 
 
 class SettingsUpdate(BaseModel):
@@ -338,6 +380,11 @@ class SettingsUpdate(BaseModel):
     cerebras_model: str | None = None
     cascade_order: list[str] | None = None
     cover_styles_enabled: list[str] | None = None
+    # --- Gemini via Vertex AI ---
+    gemini_use_vertex: bool | None = None
+    gemini_vertex_project: str | None = None
+    gemini_vertex_location: str | None = None
+    gemini_vertex_credentials_path: str | None = None
 
 
 class GlossaryEntryOut(BaseModel):

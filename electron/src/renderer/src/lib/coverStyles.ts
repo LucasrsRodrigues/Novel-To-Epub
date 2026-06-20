@@ -37,3 +37,53 @@ export const COVER_STYLES: CoverStyleOption[] = [
 export const COVER_STYLE_LABELS: Record<string, string> = Object.fromEntries(
   COVER_STYLES.map((s) => [s.id, s.label])
 )
+
+// --- Mistura ponderada de estilos ---
+// O campo cover_style aceita um spec "id:peso,id:peso,..." (pesos relativos,
+// normalizados pra 100% no backend). Um id sozinho = 100% (formato antigo).
+// Estes helpers espelham backend/app/image_gen/cover_styles.py.
+
+export interface StyleWeight {
+  id: string
+  weight: number
+}
+
+/** Parseia "id:peso,..." (ou só "id") em [{id, weight}]. Ignora ids desconhecidos. */
+export function parseStyleSpec(spec: string | null | undefined): StyleWeight[] {
+  if (!spec) return []
+  return spec
+    .split(',')
+    .map((p) => p.trim())
+    .filter(Boolean)
+    .map((part) => {
+      const [rawId, rawW] = part.split(':')
+      const id = (rawId ?? '').trim()
+      const w = rawW != null ? Number(rawW.trim()) : 100
+      return { id, weight: Number.isFinite(w) && w > 0 ? w : 100 }
+    })
+    .filter((x) => x.id && x.id in COVER_STYLE_LABELS)
+}
+
+/** Codifica [{id, weight}] em "id:peso,...". Omite pesos <= 0. */
+export function encodeStyleSpec(items: StyleWeight[]): string {
+  return items
+    .filter((i) => i.id && i.weight > 0)
+    .map((i) => `${i.id}:${Math.round(i.weight)}`)
+    .join(',')
+}
+
+/** Normaliza os pesos pra % somando ~100 (pra exibir). */
+export function normalizedWeights(items: StyleWeight[]): number[] {
+  const total = items.reduce((a, i) => a + (i.weight > 0 ? i.weight : 0), 0)
+  if (total <= 0) return items.map(() => 0)
+  return items.map((i) => Math.max(1, Math.round((i.weight / total) * 100)))
+}
+
+/** Rótulo humano: "Dark Fantasy 35% · Mythic 35% · …" (ou label único, ou null). */
+export function formatStyleSpec(spec: string | null | undefined): string | null {
+  const items = parseStyleSpec(spec)
+  if (items.length === 0) return null
+  if (items.length === 1) return COVER_STYLE_LABELS[items[0].id] ?? items[0].id
+  const pcts = normalizedWeights(items)
+  return items.map((i, idx) => `${COVER_STYLE_LABELS[i.id] ?? i.id} ${pcts[idx]}%`).join(' · ')
+}

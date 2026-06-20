@@ -6,7 +6,33 @@ separadas em ``app/db/models.py``.
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
+
+# Numero canonico do capitulo extraido do TITULO (ex: "Chapter 362 ..." -> 362).
+# E a unica chave estavel ENTRE mirrors: a posicao/slug da URL diverge por
+# off-by-N (um site insere/remove avisos), mas o numero no titulo bate. Usado
+# pelo fallback de mirror pra casar "o cap 362 daqui" com "o cap 362 de la".
+# Prioriza o numero APOS a palavra-chave (chapter/cap...) — assim "Volume 2
+# Chapter 34" vira 34, nao 2. Sem palavra-chave, cai pro numero inicial.
+_CH_KEYWORD_NUM = re.compile(
+    r"\b(?:chapters?|chapt|chap|ch|cap[íi]tulos?|cap)\b\.?\s*[#:\-]?\s*(\d+)",
+    re.IGNORECASE,
+)
+_LEADING_NUM = re.compile(r"^\s*[#:\-]?\s*(\d+)")
+
+
+def parse_chapter_number(title: str | None) -> int | None:
+    """Le o numero canonico do capitulo a partir do titulo. None se nao achar."""
+    if not title:
+        return None
+    m = _CH_KEYWORD_NUM.search(title)
+    if m:
+        return int(m.group(1))
+    m = _LEADING_NUM.match(title)
+    if m:
+        return int(m.group(1))
+    return None
 
 
 @dataclass(slots=True)
@@ -20,6 +46,13 @@ class ChapterRef:
     # Preenchido pelos adapters que organizam por volume (NovelMania). None se
     # adapter não detectar — UI cai pro modo manual de start/end.
     volume_label: str | None = None
+    # Numero canonico lido do titulo (chave de casamento entre mirrors). Auto
+    # computado de `title` no __post_init__ quando nao informado.
+    number: int | None = None
+
+    def __post_init__(self) -> None:
+        if self.number is None:
+            self.number = parse_chapter_number(self.title)
 
 
 @dataclass(slots=True)

@@ -41,6 +41,8 @@ function StatusIcon({ status }: { status: JobStatus['status'] }): React.JSX.Elem
       return <CircleAlert className="size-4 text-[var(--ink-stamp)]" />
     case 'cancelled':
       return <X className="size-4 text-[var(--ink-400)]" />
+    case 'interrupted':
+      return <RefreshCw className="size-4 text-[var(--ink-stamp)]" />
   }
 }
 
@@ -57,12 +59,15 @@ function statusLabel(job: JobStatus): string {
       const parts: string[] = ['concluído']
       if (job.translate_to) parts.push(job.translate_to)
       if (job.translation_failed > 0) parts.push(`${job.translation_failed} caps em EN (falha)`)
+      if (job.download_failed > 0) parts.push(`${job.download_failed} caps não baixados`)
       return parts.join(' · ')
     }
     case 'error':
       return `erro · ${job.error ?? 'desconhecido'}`
     case 'cancelled':
       return 'cancelado'
+    case 'interrupted':
+      return 'interrompido — clique em Continuar captura'
   }
 }
 
@@ -70,6 +75,32 @@ function statusLabel(job: JobStatus): string {
  *  por keywords na mensagem da exception do Gemini (finish_reason/block_reason). */
 function classifyFailure(reason: string): { kind: string; hint: string } {
   const r = reason.toLowerCase()
+  // --- Falhas de DOWNLOAD (scraping), checadas antes das de tradução porque
+  // as mensagens vêm de ParseError/FetchError, não do Gemini. ---
+  if (r.includes('conteudo do capitulo nao encontrado') || r.includes('conteúdo do capítulo')) {
+    return {
+      kind: 'Conteúdo não encontrado na página',
+      hint: 'O capítulo abriu mas o texto não estava onde o app espera — o mirror provavelmente redirecionou pra outro site ou mudou o layout. Re-rodar tenta de novo; em breve o app vai cair pra uma fonte alternativa automaticamente.'
+    }
+  }
+  if (r.includes('lista de capitulos vazia') || r.includes('titulo da novel nao encontrado')) {
+    return {
+      kind: 'Página da novel mudou de estrutura',
+      hint: 'O app não achou a lista de capítulos ou o título na página. O site pode ter mudado o HTML. Re-rodar costuma resolver se foi transiente.'
+    }
+  }
+  if (
+    r.includes('timeout') ||
+    r.includes('timed out') ||
+    r.includes('connection') ||
+    r.includes('fetcherror') ||
+    r.includes('falha ao baixar')
+  ) {
+    return {
+      kind: 'Falha de rede ao baixar',
+      hint: 'A página não respondeu a tempo (rede instável ou site fora do ar). Re-rodar baixa só os que faltaram.'
+    }
+  }
   if (r.includes('permission_denied') || r.includes('403') || r.includes('denied access')) {
     return {
       kind: 'Acesso negado pelo Google (403)',
@@ -198,15 +229,21 @@ function JobCard({
 }): React.JSX.Element {
   const [sending, setSending] = useState(false)
   const [retrying, setRetrying] = useState(false)
+  const [resuming, setResuming] = useState(false)
+  const [discarding, setDiscarding] = useState(false)
   const [regeneratingCover, setRegeneratingCover] = useState(false)
   const [cancelling, setCancelling] = useState(false)
   const [sendMsg, setSendMsg] = useState<{ ok: boolean; text: string } | null>(null)
   const pct = job.total ? Math.round((job.done / job.total) * 100) : 0
   const hasTranslationFailures = job.status === 'done' && job.translation_failed > 0
+  const hasDownloadFailures = job.status === 'done' && job.download_failed > 0
   // Capa pode ser gerada pra qualquer download concluído — mesmo que o usuário
   // não tenha marcado capa IA no começo (item: "gerar capa depois").
   const canRegenerateCover = job.status === 'done' && !!job.output_path
   const canCancel = job.status === 'queued' || job.status === 'running'
+  // Captura pendente (cancelada/erro/interrompida por restart) → continuar/descartar.
+  const resumable =
+    job.status === 'cancelled' || job.status === 'error' || job.status === 'interrupted'
   // Durante 'meta' o `total` ainda e 0 — barra rainbow indeterminada ajuda o
   // user a ver que esta progredindo (especialmente pra adapters lentos como
   // NovelFull que paginam ~60 vezes a TOC antes de ter o total).
@@ -290,6 +327,32 @@ function JobCard({
     }
   }
 
+  async function resumeCapture(): Promise<void> {
+    setResuming(true)
+    setSendMsg(null)
+    try {
+      // Re-roda o MESMO job (preserva todos os params). O cache retoma de onde
+      // parou. Funciona até após restart (job re-hidratado da intenção persistida).
+      await api.resumeDownload(job.id)
+    } catch (err) {
+      setSendMsg({ ok: false, text: err instanceof Error ? err.message : String(err) })
+    } finally {
+      setResuming(false)
+    }
+  }
+
+  async function discardCapture(): Promise<void> {
+    setDiscarding(true)
+    setSendMsg(null)
+    try {
+      // Remove a captura pendente + intenção persistida. Não apaga o cache.
+      await api.discardDownload(job.id)
+    } catch (err) {
+      setSendMsg({ ok: false, text: err instanceof Error ? err.message : String(err) })
+      setDiscarding(false)
+    }
+  }
+
   return (
     <article
       className={[
@@ -367,6 +430,35 @@ function JobCard({
           </div>
         )}
 
+        {resumable && (
+          <div className="flex flex-wrap items-center gap-2 pt-1">
+            <Button size="sm" onClick={resumeCapture} disabled={resuming || discarding}>
+              {resuming ? (
+                <Loader2 className="size-3.5 animate-spin" />
+              ) : (
+                <RefreshCw className="size-3.5" />
+              )}
+              Continuar captura
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={discardCapture}
+              disabled={resuming || discarding}
+            >
+              {discarding ? (
+                <Loader2 className="size-3.5 animate-spin" />
+              ) : (
+                <X className="size-3.5" />
+              )}
+              Descartar
+            </Button>
+            {sendMsg && !sendMsg.ok && (
+              <span className="font-sans text-[12px] text-[var(--ink-stamp)]">{sendMsg.text}</span>
+            )}
+          </div>
+        )}
+
         {job.status === 'done' && (
           <>
             {hasTranslationFailures && (
@@ -390,6 +482,31 @@ function JobCard({
                 </div>
                 {job.translation_failures && job.translation_failures.length > 0 && (
                   <FailureDetails failures={job.translation_failures} />
+                )}
+              </div>
+            )}
+            {hasDownloadFailures && (
+              <div
+                className={[
+                  'rounded-lg border px-3 py-2 mt-1',
+                  'border-[var(--ink-stamp)]/40'
+                ].join(' ')}
+                style={{ backgroundColor: 'rgba(149,40,31,0.08)' }}
+              >
+                <div className="flex items-center gap-2.5">
+                  <CircleAlert className="size-4 shrink-0 text-[var(--ink-stamp)]" />
+                  <span className="font-sans flex-1 text-[12px] leading-snug text-[var(--ink-700)]">
+                    <strong className="font-semibold">
+                      {job.download_failed} capítulo
+                      {job.download_failed === 1 ? '' : 's'}
+                    </strong>{' '}
+                    não puderam ser baixados e ficaram de fora do EPUB (mirror quebrado ou página
+                    mudou). Os demais foram baixados normalmente — re-rodar tenta de novo só os que
+                    faltaram.
+                  </span>
+                </div>
+                {job.download_failures && job.download_failures.length > 0 && (
+                  <FailureDetails failures={job.download_failures} />
                 )}
               </div>
             )}

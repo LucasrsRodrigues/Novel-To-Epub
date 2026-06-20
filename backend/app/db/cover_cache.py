@@ -24,6 +24,64 @@ class CoverCache:
             )
             return (row.image_data, row.mime_type) if row else None
 
+    def get_raw(
+        self, novel_id: int, volume_title: str | None
+    ) -> tuple[bytes, str] | None:
+        """Devolve ``(arte_crua_sem_texto, mime_type)`` ou None se a capa nao
+        existe OU nao tem a versao crua (capas antigas, pre image_data_raw)."""
+        key = volume_title or ""
+        with get_session() as s:
+            row = s.scalar(
+                select(orm.GeneratedCover).where(
+                    orm.GeneratedCover.novel_id == novel_id,
+                    orm.GeneratedCover.volume_title == key,
+                )
+            )
+            if row is None or row.image_data_raw is None:
+                return None
+            return (row.image_data_raw, row.mime_type)
+
+    def rename(
+        self,
+        novel_id: int,
+        old_title: str | None,
+        new_title: str | None,
+        *,
+        image_data: bytes,
+        mime_type: str,
+    ) -> bool:
+        """Renomeia a chave da capa (novel_id, old_title)->(novel_id, new_title) e
+        troca a imagem final pela versao re-composta. Preserva a arte crua, o
+        prompt e as variantes (wallpapers derivam da arte crua, que nao mudou).
+        Devolve False se nao havia capa sob ``old_title``."""
+        old_key = old_title or ""
+        new_key = new_title or ""
+        with get_session() as s:
+            row = s.scalar(
+                select(orm.GeneratedCover).where(
+                    orm.GeneratedCover.novel_id == novel_id,
+                    orm.GeneratedCover.volume_title == old_key,
+                )
+            )
+            if row is None:
+                return False
+            if new_key != old_key:
+                # Se ja existe uma capa (obsoleta) sob o novo titulo, remove pra
+                # nao violar a unique (novel_id, volume_title).
+                clash = s.scalar(
+                    select(orm.GeneratedCover).where(
+                        orm.GeneratedCover.novel_id == novel_id,
+                        orm.GeneratedCover.volume_title == new_key,
+                    )
+                )
+                if clash is not None and clash.id != row.id:
+                    s.delete(clash)
+                row.volume_title = new_key
+            row.image_data = image_data
+            row.mime_type = mime_type
+            s.commit()
+            return True
+
     def delete(self, novel_id: int, volume_title: str | None) -> bool:
         """Remove cover do cache. Devolve True se removeu, False se nao existia."""
         key = volume_title or ""

@@ -1,4 +1,5 @@
-import { app, shell, BrowserWindow, dialog } from 'electron'
+import { app, shell, BrowserWindow, dialog, ipcMain } from 'electron'
+import { writeFile } from 'fs/promises'
 import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
@@ -70,6 +71,23 @@ function createWindow(backendUrl: string): void {
     mainWindow.loadFile(join(__dirname, '../renderer/index.html'))
   }
 }
+
+// Salva bytes vindos do renderer via save dialog (download "Baixar tudo"). Devolve
+// o caminho salvo ou {canceled}. Mais confiável que o download do Chromium e dá
+// feedback claro ("salvo em ...") em vez do <a download> silencioso.
+ipcMain.handle(
+  'save-file',
+  async (_evt, payload: { defaultName: string; data: ArrayBuffer }) => {
+    const win = BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0]
+    const opts = { defaultPath: payload.defaultName }
+    const { canceled, filePath } = win
+      ? await dialog.showSaveDialog(win, opts)
+      : await dialog.showSaveDialog(opts)
+    if (canceled || !filePath) return { canceled: true }
+    await writeFile(filePath, Buffer.from(payload.data))
+    return { canceled: false, filePath }
+  }
+)
 
 app.whenReady().then(async () => {
   electronApp.setAppUserModelId('com.novel-to-epub')
