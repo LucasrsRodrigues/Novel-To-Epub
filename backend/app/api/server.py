@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
@@ -58,13 +59,29 @@ def create_app() -> FastAPI:
     async def ws_progress(ws: WebSocket) -> None:
         await ws.accept()
         queue = app.state.jobs.hub.subscribe()
+
+        async def pump() -> None:
+            try:
+                while True:
+                    await ws.send_json(await queue.get())
+            except (WebSocketDisconnect, RuntimeError):
+                pass  # cliente sumiu no meio do envio; o loop abaixo encerra
+
+        # Envia por uma task e LE o socket aqui: so lendo e que a desconexao
+        # chega. Antes o handler ficava preso no queue.get() — cliente que
+        # fechava a janela deixava a assinatura viva ate o proximo evento, e no
+        # shutdown o uvicorn esperava essa task pra sempre ("Waiting for
+        # background tasks"), entao o backend ignorava o SIGTERM.
+        sender = asyncio.create_task(pump())
         try:
-            while True:
-                event = await queue.get()
-                await ws.send_json(event)
-        except WebSocketDisconnect:
+            while not sender.done():
+                msg = await ws.receive()
+                if msg["type"] == "websocket.disconnect":
+                    break
+        except (WebSocketDisconnect, RuntimeError):
             pass
         finally:
+            sender.cancel()
             app.state.jobs.hub.unsubscribe(queue)
 
     return app
