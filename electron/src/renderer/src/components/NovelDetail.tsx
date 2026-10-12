@@ -70,25 +70,31 @@ export function NovelDetail({
   const { jobs } = useJobs()
 
   useEffect(() => {
+    // Respostas que chegam depois de trocar de novel/desmontar sao descartadas.
+    let active = true
     api
       .getNovelDetail(novelId)
-      .then(setNovel)
-      .catch((e) => setError(e instanceof Error ? e.message : String(e)))
+      .then((n) => active && setNovel(n))
+      .catch((e) => active && setError(e instanceof Error ? e.message : String(e)))
     api
       .getGlossary(novelId)
-      .then(setGlossary)
+      .then((g) => active && setGlossary(g))
       .catch(() => {})
     api
       .getNovelVolumes(novelId)
-      .then(setPersistedVolumes)
-      .catch(() => setPersistedVolumes([]))
+      .then((v) => active && setPersistedVolumes(v))
+      .catch(() => active && setPersistedVolumes([]))
     api
       .getSettings()
       .then((s) => {
+        if (!active) return
         setTargetLang(s.target_language || 'pt-BR')
         setEnabledStyles(s.cover_styles_enabled ?? [])
       })
       .catch(() => {})
+    return () => {
+      active = false
+    }
   }, [novelId])
 
   // Re-busca volumes quando um job da mesma novel termina (acabou de gerar
@@ -101,12 +107,19 @@ export function NovelDetail({
       .join('|')
   }, [jobs, novel])
   useEffect(() => {
-    if (!novel) return
+    // So quando aparece/muda um job concluido: a carga inicial ja e do efeito
+    // acima (antes este efeito dependia do objeto `novel` e re-buscava os
+    // volumes de novo assim que a novel chegava).
+    if (!doneJobsKey) return
+    let active = true
     api
       .getNovelVolumes(novelId)
-      .then(setPersistedVolumes)
+      .then((v) => active && setPersistedVolumes(v))
       .catch(() => {})
-  }, [doneJobsKey, novelId, novel])
+    return () => {
+      active = false
+    }
+  }, [doneJobsKey, novelId])
 
   // Volumes = persistido (DB) + jobs ativos (in-memory) que ainda nao viraram
   // EPUB. Persistido vem primeiro (mais recentes); jobs em curso no topo.
@@ -783,11 +796,15 @@ function CoverGallery({
   const [allMsg, setAllMsg] = useState<{ ok: boolean; text: string } | null>(null)
 
   useEffect(() => {
+    let active = true
     api
       .listCovers(novelId)
-      .then(setCovers)
-      .catch(() => setCovers([]))
-      .finally(() => setLoaded(true))
+      .then((c) => active && setCovers(c))
+      .catch(() => active && setCovers([]))
+      .finally(() => active && setLoaded(true))
+    return () => {
+      active = false
+    }
   }, [novelId, doneJobsKey])
 
   if (!loaded || covers.length === 0) return null

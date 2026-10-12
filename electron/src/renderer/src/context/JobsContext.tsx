@@ -1,5 +1,6 @@
 import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from 'react'
 import { api, wsUrl, type JobStatus } from '@renderer/lib/api'
+import { mergeSnapshot, type JobsMap } from '@renderer/lib/jobsMerge'
 
 interface JobsContextValue {
   jobs: Record<string, JobStatus>
@@ -14,39 +15,44 @@ export function useJobs(): JobsContextValue {
 
 /**
  * Mantem UMA conexao WebSocket para todo o app e o estado de todos os jobs.
- * Semeia com GET /api/downloads e atualiza ao vivo pelos eventos do WS.
+ * A cada (re)conexao re-semeia com GET /api/downloads — eventos perdidos
+ * enquanto o WS estava caido (ex.: backend reiniciou) sao recuperados — e
+ * atualiza ao vivo pelos eventos do WS.
  */
 export function JobsProvider({ children }: { children: ReactNode }): React.JSX.Element {
-  const [jobs, setJobs] = useState<Record<string, JobStatus>>({})
+  const [jobs, setJobs] = useState<JobsMap>({})
   const [connected, setConnected] = useState(false)
   const wsRef = useRef<WebSocket | null>(null)
 
   useEffect(() => {
-    api
-      .listDownloads()
-      .then((list) =>
-        setJobs((prev) => {
-          const next = { ...prev }
-          for (const job of list) next[job.id] = job
-          return next
-        })
-      )
-      .catch(() => {
-        /* backend ainda subindo */
-      })
-
     let closed = false
     let retry: ReturnType<typeof setTimeout>
+
+    function resync(): void {
+      const requestedAt = Date.now()
+      api
+        .listDownloads()
+        .then((list) => {
+          if (!closed) setJobs((prev) => mergeSnapshot(prev, list, requestedAt))
+        })
+        .catch(() => {
+          /* backend ainda subindo — a proxima conexao tenta de novo */
+        })
+    }
 
     function connect(): void {
       const ws = new WebSocket(wsUrl())
       wsRef.current = ws
-      ws.onopen = () => setConnected(true)
+      ws.onopen = () => {
+        setConnected(true)
+        resync()
+      }
       ws.onmessage = (e) => {
-        const msg = JSON.parse(e.data as string) as {
-          event: string
-          job?: JobStatus
-          job_id?: string
+        let msg: { event: string; job?: JobStatus; job_id?: string }
+        try {
+          msg = JSON.parse(e.data as string)
+        } catch {
+          return // mensagem malformada nao derruba o handler
         }
         // Evento 'removed' (descarte) não traz job — remove a linha pelo id.
         if (msg.event === 'removed' && msg.job_id) {
@@ -57,7 +63,8 @@ export function JobsProvider({ children }: { children: ReactNode }): React.JSX.E
           })
           return
         }
-        if (msg.job) setJobs((prev) => ({ ...prev, [msg.job!.id]: msg.job! }))
+        const job = msg.job
+        if (job) setJobs((prev) => ({ ...prev, [job.id]: job }))
       }
       ws.onerror = () => ws.close()
       ws.onclose = () => {

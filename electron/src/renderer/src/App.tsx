@@ -58,6 +58,9 @@ function App(): React.JSX.Element {
             {view === 'library' &&
               (selectedNovelId !== null ? (
                 <NovelDetail
+                  // key: trocar de novel remonta tudo (estado, seções, mensagens)
+                  // em vez de mostrar a novel anterior até a nova carregar.
+                  key={selectedNovelId}
                   novelId={selectedNovelId}
                   onBack={() => setSelectedNovelId(null)}
                   onCaptureMore={openCaptureWithUrl}
