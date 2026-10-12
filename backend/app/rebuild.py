@@ -8,6 +8,7 @@ zero request HTTP (exceto eventual fallback de capa raspada).
 
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 
 
@@ -207,7 +208,8 @@ async def rebuild_volume_epub(volume_id: int) -> Path:
     out_path = Path(vol["output_path"])
     out_path.parent.mkdir(parents=True, exist_ok=True)
     epub_lang = translate_to or "en"
-    build_epub(
+    await asyncio.to_thread(  # fora do event loop (ver orchestrator)
+        build_epub,
         meta, collected, out_path,
         cover_bytes=cover_bytes, language=epub_lang,
         epub_title=vol["volume_title"],

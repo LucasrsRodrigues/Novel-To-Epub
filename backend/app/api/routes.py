@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
@@ -519,7 +520,8 @@ async def rename_volume(volume_id: int, body: RenameVolumeRequest) -> dict:
     if vol["ai_cover"]:
         novel = ChapterCache().get_novel(novel_id)
         novel_title = (novel or {}).get("title") or ""
-        status = recompose_cover_text(
+        status = await asyncio.to_thread(  # Pillow fora do event loop
+            recompose_cover_text,
             novel_id=novel_id,
             old_title=old_title,
             new_title=new_title,
@@ -623,8 +625,10 @@ def list_covers(novel_id: int) -> list[dict]:
     return CoverCache().list_for_novel(novel_id)
 
 
+# `def` (nao async): o FastAPI roda no threadpool — o derive_wallpaper (Pillow)
+# e a leitura do BLOB nao travam o event loop.
 @router.get("/covers/{cover_id}/file")
-async def cover_file(
+def cover_file(
     cover_id: int,
     kind: str = "titled",
     native: bool = False,

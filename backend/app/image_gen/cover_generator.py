@@ -12,6 +12,7 @@ A capa SUBSTITUI a raspada do site quando ``ai_cover=True`` no orchestrator.
 
 from __future__ import annotations
 
+import asyncio
 import os
 import re
 from dataclasses import dataclass
@@ -661,7 +662,7 @@ async def generate_or_cache_cover(
     # crua e re-embute o bloco no prompt salvo (string, custo zero) pra regerar essa
     # capa manter a coleção. A imagem ja gerada NAO e refeita (ela define a ancora).
     if must_establish:
-        series_block = _extract_series_anchor(raw_bytes)
+        series_block = await asyncio.to_thread(_extract_series_anchor, raw_bytes)
         ChapterCache().set_series_anchor(novel_id, series_block, effective_style)
         prompt = _build_image_prompt(novel_meta, volume_title, brief, style_override, series_block)
         log.info("series_anchor_established", novel_id=novel_id, anchor=series_block[:120])
@@ -669,7 +670,8 @@ async def generate_or_cache_cover(
     # Composite tipografia POR CIMA (Gemini Image erra texto — typos, letras
     # tortas). Fica salvo no cache ja com o titulo aplicado, entao a capa
     # servida pro EPUB ja vem completa.
-    final_bytes, final_mime = _composite_title_overlay(
+    final_bytes, final_mime = await asyncio.to_thread(  # Pillow fora do event loop
+        _composite_title_overlay,
         raw_bytes,
         novel_title=novel_meta.title,
         volume_title=volume_title,
@@ -779,7 +781,8 @@ async def regenerate_cover_art(
         client=client, image_model=image_model, prompt=prompt,
         novel_id=row["novel_id"],
     )
-    final_bytes, final_mime = _composite_title_overlay(
+    final_bytes, final_mime = await asyncio.to_thread(
+        _composite_title_overlay,
         raw_bytes,
         novel_title=novel["title"],
         volume_title=row["volume_title"],

@@ -14,6 +14,7 @@ no futuro (Etapa 2), para o WebSocket.
 
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 from typing import Callable
 
@@ -371,7 +372,10 @@ async def download_to_epub(
     else:
         filename = f"{slugify(meta.title)}-{start}-{last}{lang_suffix}.epub"
     path = epub_dir / filename
-    build_epub(
+    # Em thread: montar o zip e gravar centenas de capitulos travaria o event
+    # loop (WebSocket de progresso e as outras rotas congelavam nesse meio-tempo).
+    await asyncio.to_thread(
+        build_epub,
         meta,
         collected,
         path,
