@@ -986,39 +986,38 @@ def regenerate_cover(
     body: RegenerateCoverRequest | None = None,
     jobs: JobManager = Depends(get_jobs),
 ) -> JobStatus:
-    """Gera (ou regera) a capa por IA e re-enqueue o mesmo job.
+    """Regera a capa por IA do volume que este job gerou.
 
-    Funciona mesmo pra job baixado SEM capa IA: o re-enqueue força ai_cover=True.
-    Cache de capítulo + tradução é reusado; só a capa nasce/regenera."""
+    Delega pro caminho leve "so capa" (o mesmo de /volumes/{id}/regenerate-cover):
+    regera do cache e recompila o .epub, sem re-baixar. Antes esta rota
+    re-enfileirava o download inteiro — perdia o skip_chapters do volume (os
+    caps-lixo ignorados voltavam) e APAGAVA a capa antes de gerar a nova (se a
+    geracao falhasse, o volume ficava sem capa).
+    """
     job = jobs.get(job_id)
     if job is None:
         raise HTTPException(status_code=404, detail="job nao encontrado")
 
-    # Resolve novel_id pela URL do job (que e a source_url da novel cadastrada).
-    with get_session() as s:
-        novel = s.scalar(select(orm.Novel).where(orm.Novel.source_url == job.url))
-    if novel is None:
+    vol = VolumeStore().get(job.volume_id) if job.volume_id else None
+    if vol is None:
+        # Jobs de versoes antigas nao tinham volume_id: casa pelo volume da novel
+        # com o mesmo titulo e idioma (o mesmo par que define o arquivo).
+        with get_session() as s:
+            novel = s.scalar(select(orm.Novel).where(orm.Novel.source_url == job.url))
+        candidates = VolumeStore().list_for_novel(novel.id) if novel else []
+        vol = next(
+            (
+                v for v in candidates
+                if v["volume_title"] == job.volume_title and v["translate_to"] == job.translate_to
+            ),
+            None,
+        )
+    if vol is None:
         raise HTTPException(
-            status_code=404,
-            detail="novel correspondente nao esta no cache (re-rode o download primeiro)",
+            status_code=409,
+            detail="este job nao gerou um volume — conclua a captura antes de regerar a capa",
         )
-
-    CoverCache().delete(novel.id, job.volume_title)
-
-    # Re-enqueue com mesmos params (igual ao "Continuar tradução")
-    new_job = jobs.enqueue(
-        DownloadRequest(
-            url=job.url,
-            start=job.start,
-            end=job.end,
-            with_cover=job.with_cover,
-            translate_to=job.translate_to,
-            volume_title=job.volume_title,
-            ai_cover=True,
-            cover_style=body.cover_style if body else None,
-        )
-    )
-    return new_job.to_status()
+    return jobs.enqueue_cover_regen(vol, body.cover_style if body else None).to_status()
 
 
 @router.post("/downloads/{job_id}/kindle")
