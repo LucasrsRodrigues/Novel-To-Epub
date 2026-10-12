@@ -37,7 +37,7 @@ DEFAULT_HEADERS = {
 
 # Erros transitorios que valem a pena re-tentar. Um 403/404 nao melhora com
 # backoff — re-tentar so queima tempo (e reforca o bloqueio), entao de HTTP so
-# 429 e 5xx entram no retry.
+# 408/425/429 e 5xx entram no retry (e nem esses, se forem desafio anti-bot).
 _RETRYABLE_STATUS = {408, 425, 429}
 
 
@@ -45,23 +45,49 @@ def _is_retryable(exc: BaseException) -> bool:
     if isinstance(exc, httpx.TransportError):
         return True
     if isinstance(exc, httpx.HTTPStatusError):
+        # Desafio anti-bot (muitas vezes 503) nao passa com backoff — so atrasa
+        # o erro e reforca o bloqueio.
+        if _challenge_reason(exc.response):
+            return False
         code = exc.response.status_code
         return code in _RETRYABLE_STATUS or code >= 500
     return False
 
 
+# Marcas das paginas de desafio/bloqueio no corpo da resposta. O header
+# ``server: cloudflare`` sozinho NAO serve: ele vem em TODA resposta de site
+# atras do Cloudflare, entao um 403 comum (hotlink de capa, pagina proibida) ou
+# um 503 real da origem seriam rotulados como anti-bot.
+_CHALLENGE_MARKERS = {
+    "Cloudflare": (
+        "<title>just a moment",
+        "/cdn-cgi/challenge-platform/",
+        "cf-browser-verification",
+        "attention required! | cloudflare",
+    ),
+    "DDoS-Guard": ("ddos-guard",),
+}
+
+
 def _challenge_reason(resp: httpx.Response) -> str | None:
     """Detecta um desafio anti-bot (Cloudflare & cia) na resposta."""
-    headers = resp.headers
-    if headers.get("cf-mitigated") == "challenge":
+    if resp.headers.get("cf-mitigated") == "challenge":
         return "Cloudflare"
-    if resp.status_code in (403, 503):
-        server = headers.get("server", "").lower()
-        if "cloudflare" in server:
-            return "Cloudflare"
-        if "ddos-guard" in server:
-            return "DDoS-Guard"
-    return None
+    if resp.status_code not in (403, 429, 503):
+        return None
+    server = resp.headers.get("server", "").lower()
+    guard = (
+        "Cloudflare" if "cloudflare" in server
+        else "DDoS-Guard" if "ddos-guard" in server
+        else None
+    )
+    if guard is None:
+        return None
+    try:
+        body = resp.text[:20000].lower()
+    except Exception:  # corpo nao decodificavel → sem como confirmar
+        return None
+    return guard if any(m in body for m in _CHALLENGE_MARKERS[guard]) else None
 
 
 class HttpClient:
@@ -110,7 +136,8 @@ class HttpClient:
                     f"{urlsplit(url).netloc} esta protegido por {guard} e devolveu um "
                     f"desafio anti-bot (HTTP {exc.response.status_code}). O site nao "
                     f"pode ser capturado por HTTP direto — use outro mirror/fonte "
-                    f"para esta obra."
+                    f"para esta obra.",
+                    status=exc.response.status_code,
                 ) from exc
             log.warning("fetch_failed", url=url, error=str(exc))
             raise FetchError(
