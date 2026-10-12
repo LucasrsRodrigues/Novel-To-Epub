@@ -9,10 +9,13 @@ from __future__ import annotations
 
 import asyncio
 import random
+from datetime import datetime, timezone
+from email.utils import parsedate_to_datetime
 from urllib.parse import urlsplit
 
 import httpx
 from tenacity import (
+    RetryCallState,
     retry,
     retry_if_exception,
     stop_after_attempt,
@@ -90,6 +93,40 @@ def _challenge_reason(resp: httpx.Response) -> str | None:
     return guard if any(m in body for m in _CHALLENGE_MARKERS[guard]) else None
 
 
+# Teto pra respeitar o Retry-After: o job e serial, entao dormir mais que isso
+# seguraria a fila inteira — melhor falhar o capitulo (e cair pro mirror).
+_RETRY_AFTER_MAX_S = 60.0
+_backoff = wait_exponential(multiplier=1, min=1, max=10)
+
+
+def _retry_after_s(resp: httpx.Response) -> float | None:
+    """Segundos pedidos pelo header ``Retry-After`` (numero ou HTTP-date)."""
+    raw = resp.headers.get("retry-after")
+    if not raw:
+        return None
+    try:
+        secs = float(raw)
+    except ValueError:
+        try:
+            when = parsedate_to_datetime(raw)
+        except (TypeError, ValueError):
+            return None
+        if when.tzinfo is None:
+            when = when.replace(tzinfo=timezone.utc)
+        secs = (when - datetime.now(timezone.utc)).total_seconds()
+    return min(_RETRY_AFTER_MAX_S, max(0.0, secs))
+
+
+def _wait(retry_state: RetryCallState) -> float:
+    """Backoff exponencial — ou o que o site pediu no Retry-After (429/503)."""
+    exc = retry_state.outcome.exception() if retry_state.outcome else None
+    if isinstance(exc, httpx.HTTPStatusError):
+        asked = _retry_after_s(exc.response)
+        if asked is not None:
+            return asked
+    return _backoff(retry_state)
+
+
 class HttpClient:
     def __init__(
         self,
@@ -118,7 +155,7 @@ class HttpClient:
         @retry(
             retry=retry_if_exception(_is_retryable),
             stop=stop_after_attempt(self.max_retries + 1),
-            wait=wait_exponential(multiplier=1, min=1, max=10),
+            wait=_wait,
             reraise=True,
         )
         async def _do() -> httpx.Response:
