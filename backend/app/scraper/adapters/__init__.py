@@ -15,3 +15,4 @@ from . import novelmania  # noqa: F401
 from . import novellfull  # noqa: F401
 from . import royalroad  # noqa: F401
 from . import csnovels  # noqa: F401
+from . import wuxiaworld_eu  # noqa: F401
