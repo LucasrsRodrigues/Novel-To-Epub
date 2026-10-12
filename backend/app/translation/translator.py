@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import re
 
 from app.logging_conf import get_logger
 from app.translation.glossary import GlossaryEntry, GlossaryStore

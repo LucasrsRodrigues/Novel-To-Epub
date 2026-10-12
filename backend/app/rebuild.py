@@ -10,12 +10,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from slugify import slugify
 
 from app.db.cache import ChapterCache
 from app.db.cover_cache import CoverCache
-from app.db.database import get_session
-from app.db import models as orm
 from app.db.volume_store import VolumeStore
 from app.epub.builder import build_epub
 from app.logging_conf import get_logger

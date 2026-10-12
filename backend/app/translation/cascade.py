@@ -15,7 +15,7 @@ reseta o ratelimit lá tb por causa do tempo decorrido).
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
 from app.logging_conf import get_logger

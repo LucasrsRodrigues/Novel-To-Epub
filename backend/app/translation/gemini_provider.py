@@ -13,7 +13,6 @@ from __future__ import annotations
 import asyncio
 from typing import Literal
 
-from google import genai
 from google.genai import errors as genai_errors
 from google.genai import types
 from pydantic import BaseModel, Field

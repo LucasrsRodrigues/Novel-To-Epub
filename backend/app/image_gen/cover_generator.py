@@ -16,7 +16,6 @@ import os
 import re
 from dataclasses import dataclass
 from io import BytesIO
-from pathlib import Path
 
 from google import genai
 from google.genai import types

@@ -874,7 +874,7 @@ def translation_debug_status() -> TranslationDebugStatus:
     """Snapshot do estado: quais providers estão configurados, qual ordem,
     quais pins existem (volume → provider gravado), e últimas 20 chamadas
     de tradução. Usado pra diagnosticar 'meu cascade só usa Gemini'."""
-    from app.translation.factory import _read_keys, DEFAULT_MODELS
+    from app.translation.factory import _read_keys
 
     cfg = SettingsStore().get()
     keys = _read_keys(cfg)

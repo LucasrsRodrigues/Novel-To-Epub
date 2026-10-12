@@ -25,7 +25,6 @@ from pydantic import ValidationError
 from app.logging_conf import get_logger
 from app.translation.gemini_provider import (
     GeminiTranslationError,
-    _GlossaryDelta,
     _TranslationOutput,
     _build_system_prompt,
 )
