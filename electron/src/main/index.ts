@@ -52,7 +52,11 @@ function createWindow(backend: BackendInfo): void {
     ...(process.platform === 'linux' ? { icon } : {}),
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
-      sandbox: false,
+      // Preload so usa contextBridge + ipcRenderer + process.argv, tudo
+      // disponivel no preload sandboxed. Renderer sem Node, isolado do preload.
+      sandbox: true,
+      contextIsolation: true,
+      nodeIntegration: false,
       // injeta URL + token do backend no renderer (lidos pelo preload)
       additionalArguments: [`--backend-url=${backend.url}`, `--api-token=${backend.token}`]
     }
