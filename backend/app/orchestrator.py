@@ -126,6 +126,11 @@ async def download_to_epub(
         mirror_configs = MirrorStore().list_for_novel(novel_id)
         mirror_adapters: dict[str, object] = {}
         mirror_tocs: dict[str, dict[int, ChapterRef]] = {}
+        # Mirrors cuja TOC nao deu pra obter (site bloqueado, obra paga, fora do
+        # ar). Ficam de fora pelo resto do job: sem isso, CADA capitulo que
+        # falhasse no primario re-baixava a TOC inteira do mirror (~60 paginas
+        # no NovelFull) so pra falhar de novo.
+        dead_mirrors: set[str] = set()
 
         async def fetch_from_mirrors(ref: ChapterRef) -> tuple[ChapterContent, str] | None:
             """Tenta recuperar `ref` de cada mirror, casando por numero de titulo.
@@ -134,6 +139,8 @@ async def download_to_epub(
                 return None  # sem numero canonico nao da pra casar com seguranca
             for cfg in mirror_configs:
                 m_url = cfg["source_url"]
+                if m_url in dead_mirrors:
+                    continue
                 try:
                     adapter_m = mirror_adapters.get(m_url)
                     if adapter_m is None:
@@ -146,6 +153,13 @@ async def download_to_epub(
                             r.number: r for r in meta_m.chapters if r.number is not None
                         }
                         mirror_tocs[m_url] = toc
+                except Exception as exc:
+                    dead_mirrors.add(m_url)
+                    log.warning(
+                        "mirror_unavailable", mirror=m_url, error=str(exc)[:200]
+                    )
+                    continue
+                try:
                     target = toc.get(ref.number)
                     if target is None:
                         continue  # esse mirror nao tem esse numero
