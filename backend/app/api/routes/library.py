@@ -104,3 +104,20 @@ def get_glossary(novel_id: int) -> list[GlossaryEntryOut]:
         )
         for e in entries
     ]
+
+
+@router.post("/library/{novel_id}/glossary/clean")
+def clean_glossary(novel_id: int, apply: bool = False) -> dict:
+    """Limpeza do glossario (duplicatas, palavras comuns, lixo).
+
+    Sem ``apply`` so devolve o relatorio do que seria feito; com ``apply=true``
+    aplica e devolve o mesmo relatorio. Ver app.translation.glossary_cleanup.
+    """
+    from app.translation.glossary_cleanup import apply_cleanup, plan_cleanup
+
+    if ChapterCache().get_novel(novel_id) is None:
+        raise HTTPException(status_code=404, detail="novel nao encontrada")
+    plan = plan_cleanup(novel_id)
+    if apply:
+        apply_cleanup(plan)
+    return {**plan.summary(), "applied": apply}

@@ -54,6 +54,8 @@ _PENDING_COLUMNS: list[tuple[str, str, str]] = [
     ("generated_covers", "image_data_raw", "BLOB"),
     # Estilo de arte usado por capa (id ou spec ponderado) — exibido na galeria.
     ("generated_covers", "cover_style", "VARCHAR(500)"),
+    # Termo do glossario fora do prompt (palavra comum/lixo) — limpeza do glossario.
+    ("glossary", "ignored", "BOOLEAN DEFAULT 0"),
     # Capitulos ignorados por volume (CSV de indices) — pula cap-lixo inicial.
     ("generated_volumes", "skip_chapters", "VARCHAR(500) DEFAULT ''"),
     # Cascade providers (mai 2026)

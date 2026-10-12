@@ -227,6 +227,10 @@ class Glossary(Base):
     confidence: Mapped[str] = mapped_column(String(10), default="medium")  # high|medium|low
     first_seen_chapter: Mapped[int | None] = mapped_column(Integer, nullable=True)
     source: Mapped[str] = mapped_column(String(20), default="llm")  # llm|wiki|manual
+    # Fora do prompt (palavra comum que o LLM cadastrou como nome proprio, lixo).
+    # A linha fica — e nao some — pra o LLM nao re-adicionar o termo: o upsert
+    # casa nela e o ignored se mantem. Ver app.translation.glossary_cleanup.
+    ignored: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )

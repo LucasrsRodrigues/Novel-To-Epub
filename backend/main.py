@@ -123,6 +123,34 @@ def serve(
     uvicorn.run("app.api.server:app", host=host, port=port, reload=reload)
 
 
+@app.command(name="glossary-clean")
+def glossary_clean(
+    novel_id: Optional[int] = typer.Option(None, "--novel-id", help="So esta novel (padrao: todas)"),
+    apply: bool = typer.Option(False, "--apply", help="Aplica (sem isso, so mostra o relatorio)"),
+) -> None:
+    """Limpa o glossario: junta duplicatas e tira palavras comuns/lixo do prompt."""
+    from app.db.cache import ChapterCache
+    from app.translation.glossary_cleanup import apply_cleanup, plan_cleanup
+
+    novels = ChapterCache().list_novels()
+    if novel_id is not None:
+        novels = [n for n in novels if n["id"] == novel_id]
+    for n in novels:
+        plan = plan_cleanup(n["id"])
+        if apply:
+            apply_cleanup(plan)
+        r = plan.summary()
+        typer.echo(
+            f"{n['title']}: {r['total']} termos → {r['remaining_active']} ativos "
+            f"(-{r['duplicates_removed']} duplicatas, -{r['common_words_ignored']} palavras comuns, "
+            f"-{r['junk_ignored']} lixo)"
+        )
+        if r["common_words"]:
+            typer.echo(f"   comuns: {', '.join(r['common_words'][:25])}{' …' if len(r['common_words']) > 25 else ''}")
+    typer.secho("aplicado." if apply else "(simulacao — use --apply pra aplicar)",
+                fg=typer.colors.GREEN if apply else typer.colors.YELLOW)
+
+
 @app.command(name="translate-test")
 def translate_test(
     url: str = typer.Option(..., "--url", "-u", help="URL da novel"),

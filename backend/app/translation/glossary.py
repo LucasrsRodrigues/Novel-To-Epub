@@ -34,6 +34,7 @@ class GlossaryEntry:
     confidence: str = "medium"
     first_seen_chapter: int | None = None
     source: str = "llm"
+    ignored: bool = False
 
 
 def _row_to_entry(row: orm.Glossary) -> GlossaryEntry:
@@ -46,6 +47,7 @@ def _row_to_entry(row: orm.Glossary) -> GlossaryEntry:
         confidence=row.confidence,
         first_seen_chapter=row.first_seen_chapter,
         source=row.source,
+        ignored=bool(row.ignored),
     )
 
 
@@ -70,14 +72,28 @@ CORE_CAST = 30
 _MAX_TERM_WORDS = 8
 
 
+# Finais que parecem plural mas nao sao ("Sunless", "Chaos", "Nephis", "Atlas").
+_NOT_PLURAL = ("ss", "us", "is", "as", "os")
+
+
+def _norm_word(w: str) -> str:
+    if w.endswith(("'s", "’s")):  # posse inglesa: "Sunny's" → "sunny"
+        w = w[:-2]
+    if len(w) > 3 and w.endswith("s") and not w.endswith(_NOT_PLURAL):
+        w = w[:-1]  # plural simples: "Reflections" → "reflection"
+    return w
+
+
 def _words(text: str) -> list[str]:
-    """Palavras normalizadas: minusculas, sem posse inglesa ("Sunny's" → "sunny")."""
-    out = []
-    for w in _WORD.findall(text.lower()):
-        if w.endswith(("'s", "’s")):
-            w = w[:-2]
-        out.append(w)
-    return out
+    """Palavras normalizadas (minusculas, sem posse, sem plural simples)."""
+    return [_norm_word(w) for w in _WORD.findall(text.lower())]
+
+
+def term_key(term: str) -> tuple[str, ...]:
+    """Chave de identidade de um termo: "Immortal Flame clan", "Immortal Flame
+    Clans" e "immortal flame clan's" sao o MESMO termo. Usada pra casar o termo
+    no texto do capitulo e pra o upsert nao criar variantes duplicadas."""
+    return tuple(_words(term))
 
 
 def _usable(term: str) -> bool:
@@ -101,7 +117,7 @@ def select_for_chapter(
     nunca um termo do capitulo.
     """
     words = _words(html.unescape(_TAG.sub(" ", chapter_text)))
-    keyed = [(e, tuple(_words(e.term))) for e in entries if _usable(e.term)]
+    keyed = [(e, term_key(e.term)) for e in entries if _usable(e.term) and not e.ignored]
     longest = min(_MAX_TERM_WORDS, max((len(k) for _, k in keyed), default=1))
     grams = {
         tuple(words[i:i + n])
@@ -112,7 +128,7 @@ def select_for_chapter(
     matched.sort(key=lambda e: (_KIND_PRIORITY.get(e.kind, 99), e.term.lower()))
 
     seen = {id(e) for e in matched}
-    cast = [e for e in entries if e.kind == "character" and id(e) not in seen]
+    cast = [e for e in entries if e.kind == "character" and not e.ignored and id(e) not in seen]
     cast.sort(key=lambda e: (
         e.first_seen_chapter if e.first_seen_chapter is not None else 10**9,
         -_CONF_RANK.get(e.confidence, 0),
@@ -125,13 +141,16 @@ class GlossaryStore:
     def __init__(self) -> None:
         init_db()
 
-    def list_for_novel(self, novel_id: int) -> list[GlossaryEntry]:
+    def list_for_novel(
+        self, novel_id: int, *, include_ignored: bool = False
+    ) -> list[GlossaryEntry]:
+        """Glossario da novel. Termos ``ignored`` (palavra comum/lixo) ficam de
+        fora — nao vao pro prompt nem pra tela — a menos que pedidos."""
         with get_session() as s:
-            rows = s.scalars(
-                select(orm.Glossary)
-                .where(orm.Glossary.novel_id == novel_id)
-                .order_by(orm.Glossary.kind, orm.Glossary.term)
-            ).all()
+            q = select(orm.Glossary).where(orm.Glossary.novel_id == novel_id)
+            if not include_ignored:
+                q = q.where(orm.Glossary.ignored.is_not(True))
+            rows = s.scalars(q.order_by(orm.Glossary.kind, orm.Glossary.term)).all()
             return [_row_to_entry(r) for r in rows]
 
     def upsert_many(
@@ -143,7 +162,8 @@ class GlossaryStore:
     ) -> tuple[int, int]:
         """Insere os termos novos, atualiza os existentes.
 
-        Politica: nao rebaixa confianca. Se ja temos uma entrada `high` e o LLM
+        Termos sao identificados por ``term_key`` (maiusculas/posse/plural nao
+        criam entrada nova). Politica: nao rebaixa confianca. Se ja temos uma entrada `high` e o LLM
         propos `low`, mantemos a high (e ignoramos a atualizacao). Edicao manual
         do usuario (source=manual) tambem nunca eh sobrescrita pelo LLM.
 
@@ -151,13 +171,19 @@ class GlossaryStore:
         """
         added = updated = 0
         with get_session() as s:
-            for entry in entries:
-                row = s.scalar(
-                    select(orm.Glossary).where(
-                        orm.Glossary.novel_id == novel_id,
-                        orm.Glossary.term == entry.term,
-                    )
+            # Casa por term_key, nao pelo texto exato: "Immortal Flame clan" ou
+            # "Reflections" atualizam a entrada ja existente em vez de criar uma
+            # variante (era assim que o glossario acumulava duplicatas). Termo
+            # ignorado continua ignorado — o LLM nao consegue "ressuscitar".
+            by_key = {
+                term_key(r.term): r
+                for r in s.scalars(
+                    select(orm.Glossary).where(orm.Glossary.novel_id == novel_id)
                 )
+            }
+            for entry in entries:
+                key = term_key(entry.term)
+                row = by_key.get(key) if key else None
                 if row is None:
                     row = orm.Glossary(
                         novel_id=novel_id,
@@ -166,6 +192,8 @@ class GlossaryStore:
                     )
                     s.add(row)
                     _apply(row, entry)
+                    if key:
+                        by_key[key] = row
                     added += 1
                     continue
 
