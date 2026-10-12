@@ -18,6 +18,7 @@ from google.genai import errors as genai_errors
 from google.genai import types
 from pydantic import BaseModel, Field
 
+from app.gemini_client import GeminiTimeoutError
 from app.logging_conf import get_logger
 from app.translation.glossary import GlossaryEntry
 from app.translation.provider import TranslationProvider, TranslationResult
@@ -338,6 +339,10 @@ class GeminiProvider(TranslationProvider):
                     op="translate_chapter",
                     chapter=chapter_index,
                 )
+            except GeminiTimeoutError as exc:
+                # Mesmo tratamento de um 5xx esgotado: o cascade poe o provider
+                # em cooldown curto e tenta o proximo.
+                raise GeminiTranslationError(str(exc)) from exc
             except genai_errors.APIError as exc:
                 # Esgotou retries transitorios OU erro permanente (4xx).
                 code = getattr(exc, "code", "?")

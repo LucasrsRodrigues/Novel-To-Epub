@@ -8,6 +8,11 @@ Erros transitorios mais comuns:
 
 Erros permanentes (NAO fazem retry): 400 (request malformado), 401 (auth),
 403 (permissao), 404 (modelo nao existe).
+
+Timeout do client (``GEMINI_TIMEOUT_S``) tambem NAO faz retry: cada tentativa ja
+esperou minutos, e repetir 5x seguraria a fila por ~15min. Vira
+``GeminiTimeoutError`` (mensagem legivel) e quem chamou decide — o cascade de
+traducao pula pro proximo provider, a capa cai na capa raspada.
 """
 
 from __future__ import annotations
@@ -16,8 +21,10 @@ import asyncio
 import random
 from typing import Awaitable, Callable, TypeVar
 
+import httpx
 from google.genai import errors
 
+from app.gemini_client import GEMINI_TIMEOUT_S, GeminiTimeoutError
 from app.logging_conf import get_logger
 
 log = get_logger("genai-retry")
@@ -45,6 +52,12 @@ async def call_with_retry(
     for attempt in range(max_attempts):
         try:
             return await fn()
+        except httpx.TimeoutException as exc:
+            log.warning("genai_timeout", op=op, chapter=chapter, timeout_s=GEMINI_TIMEOUT_S)
+            where = f" no cap {chapter}" if chapter is not None else ""
+            raise GeminiTimeoutError(
+                f"Gemini nao respondeu em {GEMINI_TIMEOUT_S}s ({op}{where})"
+            ) from exc
         except errors.APIError as exc:
             code = getattr(exc, "code", None)
             status = getattr(exc, "status", None)

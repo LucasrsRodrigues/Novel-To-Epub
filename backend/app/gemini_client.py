@@ -11,6 +11,16 @@ from __future__ import annotations
 import os
 
 from google import genai
+from google.genai import types
+
+# Teto por chamada (traducao de capitulo longo com JSON estruturado ou geracao de
+# imagem levam ~30-90s). Sem isso, uma conexao pendurada travava o worker unico
+# — e com ele a fila inteira — indefinidamente.
+GEMINI_TIMEOUT_S = 180
+
+
+class GeminiTimeoutError(RuntimeError):
+    """O Gemini nao respondeu dentro de ``GEMINI_TIMEOUT_S``."""
 
 
 def vertex_cfg(cfg: dict) -> tuple[bool, str | None, str, str | None]:
@@ -70,8 +80,16 @@ def make_genai_client(
                 scopes=["https://www.googleapis.com/auth/cloud-platform"],
             )
         return genai.Client(
-            vertexai=True, project=project, location=location, credentials=credentials
+            vertexai=True,
+            project=project,
+            location=location,
+            credentials=credentials,
+            http_options=_http_options(),
         )
     if not api_key:
         raise ValueError("Gemini sem API key (modo AI Studio).")
-    return genai.Client(api_key=api_key)
+    return genai.Client(api_key=api_key, http_options=_http_options())
+
+
+def _http_options() -> types.HttpOptions:
+    return types.HttpOptions(timeout=GEMINI_TIMEOUT_S * 1000)  # SDK usa ms
