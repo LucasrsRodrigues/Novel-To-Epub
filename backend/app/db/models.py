@@ -256,6 +256,9 @@ class GeneratedCover(Base):
     mime_type: Mapped[str] = mapped_column(String(50), default="image/png")
     prompt: Mapped[str] = mapped_column(Text)
     model: Mapped[str] = mapped_column(String(50))
+    # Estilo de arte usado na geracao: id de cover_styles (ex: "dark-fantasy") ou
+    # spec ponderado "id:peso,...". Null = automatico (IA decidiu) ou capa antiga.
+    cover_style: Mapped[str | None] = mapped_column(String(500), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )

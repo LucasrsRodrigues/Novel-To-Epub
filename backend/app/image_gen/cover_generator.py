@@ -684,6 +684,7 @@ async def generate_or_cache_cover(
         mime_type=final_mime,
         prompt=prompt,
         model=image_model,
+        cover_style=effective_style,  # estilo efetivo (explicito ou default da novel)
     )
     log.info(
         "cover_generated",
@@ -793,6 +794,7 @@ async def regenerate_cover_art(
         mime_type=final_mime,
         prompt=prompt,
         model=image_model,
+        cover_style=row.get("cover_style"),  # preserva o estilo da capa original
     )
     log.info("cover_art_regenerated", cover_id=cover_id, bytes=len(final_bytes))
     return final_bytes, final_mime

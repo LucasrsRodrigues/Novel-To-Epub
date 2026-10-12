@@ -186,6 +186,7 @@ export interface CoverOut {
   volume_title: string | null
   mime_type: string
   has_raw: boolean
+  cover_style: string | null // estilo de arte (id ou spec); null = automático/antiga
   native_aspects: string[] // ex: ["16:9"]
   created_at: string
 }

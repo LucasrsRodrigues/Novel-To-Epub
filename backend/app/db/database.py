@@ -52,6 +52,8 @@ _PENDING_COLUMNS: list[tuple[str, str, str]] = [
     ("novels", "series_anchor_style", "VARCHAR(60)"),
     # Arte crua (sem texto) das capas — pra download "sem texto" e wallpapers.
     ("generated_covers", "image_data_raw", "BLOB"),
+    # Estilo de arte usado por capa (id ou spec ponderado) — exibido na galeria.
+    ("generated_covers", "cover_style", "VARCHAR(500)"),
     # Capitulos ignorados por volume (CSV de indices) — pula cap-lixo inicial.
     ("generated_volumes", "skip_chapters", "VARCHAR(500) DEFAULT ''"),
     # Cascade providers (mai 2026)

@@ -1034,9 +1034,18 @@ function CoverModal({
           </div>
 
           <div className="min-w-0">
-            <h3 className="font-display text-lg font-medium tracking-tight">
-              {cover.volume_title ?? 'Capa da novel'}
-            </h3>
+            <div className="flex flex-wrap items-center gap-2">
+              <h3 className="font-display text-lg font-medium tracking-tight">
+                {cover.volume_title ?? 'Capa da novel'}
+              </h3>
+              <span
+                className="font-sans inline-flex items-center gap-1 rounded-full border border-[var(--border-soft)] bg-[var(--paper-200)] px-2 py-0.5 text-[11px] tracking-wide text-[var(--ink-600)]"
+                title="Estilo de arte usado nesta capa"
+              >
+                <Sparkles className="size-3 text-[var(--ink-400)]" />
+                {formatStyleSpec(cover.cover_style) ?? 'Automático'}
+              </span>
+            </div>
 
             <div className="mt-3">
               <ResolutionRow title="Original (2:3)">

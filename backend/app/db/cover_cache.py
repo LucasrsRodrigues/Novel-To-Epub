@@ -108,6 +108,7 @@ class CoverCache:
         prompt: str,
         model: str,
         image_data_raw: bytes | None = None,
+        cover_style: str | None = None,
     ) -> None:
         key = volume_title or ""
         with get_session() as s:
@@ -125,6 +126,7 @@ class CoverCache:
             row.mime_type = mime_type
             row.prompt = prompt
             row.model = model
+            row.cover_style = cover_style
             # Re-gerou a capa → variantes nativas antigas ficam obsoletas.
             row.variants.clear()
             s.commit()
@@ -145,6 +147,7 @@ class CoverCache:
                     "volume_title": r.volume_title or None,
                     "mime_type": r.mime_type,
                     "has_raw": r.image_data_raw is not None,
+                    "cover_style": r.cover_style or None,
                     "native_aspects": sorted(v.aspect for v in r.variants),
                     "created_at": r.created_at,
                 }
@@ -166,6 +169,7 @@ class CoverCache:
                 "mime_type": r.mime_type,
                 "prompt": r.prompt,
                 "model": r.model,
+                "cover_style": r.cover_style or None,
             }
 
     # ------------------------------------------------------------- variantes

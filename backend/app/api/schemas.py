@@ -52,6 +52,7 @@ class CoverOut(BaseModel):
     volume_title: str | None
     mime_type: str
     has_raw: bool  # tem arte sem texto (covers antigas podem nao ter)
+    cover_style: str | None = None  # estilo de arte (id ou spec); None = automatico/antiga
     native_aspects: list[str]  # proporcoes ja geradas nativamente (ex: ["16:9"])
     created_at: datetime
 
