@@ -8,9 +8,9 @@ declare global {
       apiToken: string
       downloadFile: (
         url: string,
-        defaultName: string
+        defaultName: string,
+        onProgress?: (pct: number) => void
       ) => Promise<{ canceled?: boolean; filePath?: string; bytes?: number; error?: string }>
-      onDownloadProgress: (cb: (pct: number) => void) => () => void
     }
   }
 }

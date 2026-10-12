@@ -1,9 +1,9 @@
 import { app, shell, BrowserWindow, dialog, ipcMain } from 'electron'
-import { createWriteStream } from 'fs'
 import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
 import { startBackend, stopBackend, type BackendConfig, type BackendInfo } from './backend'
+import { downloadToFile } from './download'
 
 // Modo headless (sem janela) — usado para validar o spawn do backend nos testes.
 const HEADLESS = !!process.env.NOVEL_HEADLESS
@@ -72,13 +72,21 @@ function createWindow(backend: BackendInfo): void {
   }
 }
 
-// Baixa uma URL (backend localhost) direto pro disco, no processo main. O main
-// faz o fetch e grava via stream — assim NENHUM binário grande cruza a fronteira
-// do contextBridge/IPC (passar ArrayBuffer por lá corrompia o .zip). Emite
-// progresso por evento 'download-progress' e devolve {filePath} | {canceled} | {error}.
+// Origem do backend (http://127.0.0.1:<porta>) — o download-file so aceita URLs
+// dela. Definida quando o backend sobe.
+let backendOrigin: string | null = null
+
+// Baixa uma URL do backend direto pro disco, no processo main (ver
+// downloadToFile). Nenhum binário grande cruza a fronteira do contextBridge/IPC
+// (passar ArrayBuffer por lá corrompia o .zip). O progresso vai em
+// 'download-progress' com o `id` do pedido, pra downloads simultâneos não se
+// misturarem. Devolve {filePath, bytes} | {canceled} | {error}.
 ipcMain.handle(
   'download-file',
-  async (evt, payload: { url: string; defaultName: string }) => {
+  async (evt, payload: { id: string; url: string; defaultName: string }) => {
+    if (!backendOrigin || new URL(payload.url).origin !== backendOrigin) {
+      return { error: 'URL de download fora do backend do app' }
+    }
     const win = BrowserWindow.fromWebContents(evt.sender) ?? BrowserWindow.getFocusedWindow()
     const opts = { defaultPath: payload.defaultName }
     const { canceled, filePath } = win
@@ -86,37 +94,10 @@ ipcMain.handle(
       : await dialog.showSaveDialog(opts)
     if (canceled || !filePath) return { canceled: true }
 
-    try {
-      const res = await fetch(payload.url)
-      if (!res.ok || !res.body) {
-        let detail = `HTTP ${res.status}`
-        try {
-          const j = (await res.json()) as { detail?: string }
-          if (j?.detail) detail = j.detail
-        } catch {
-          /* corpo não-JSON */
-        }
-        return { error: detail }
-      }
-
-      const total = Number(res.headers.get('content-length')) || 0
-      const out = createWriteStream(filePath)
-      const reader = res.body.getReader()
-      let received = 0
-      for (;;) {
-        const { done, value } = await reader.read()
-        if (done) break
-        out.write(Buffer.from(value))
-        received += value.length
-        evt.sender.send('download-progress', total ? received / total : -1)
-      }
-      await new Promise<void>((resolve, reject) =>
-        out.end((err?: Error | null) => (err ? reject(err) : resolve()))
-      )
-      return { filePath, bytes: received }
-    } catch (err) {
-      return { error: err instanceof Error ? err.message : String(err) }
-    }
+    return downloadToFile(payload.url, filePath, (pct) => {
+      // a janela pode ter fechado no meio do download
+      if (!evt.sender.isDestroyed()) evt.sender.send('download-progress', payload.id, pct)
+    })
   }
 )
 
@@ -127,6 +108,7 @@ app.whenReady().then(async () => {
   let backend: BackendInfo
   try {
     backend = await startBackend(backendConfig())
+    backendOrigin = new URL(backend.url).origin
     console.log('[main] backend pronto em', backend.url)
   } catch (err) {
     console.error('[main] backend falhou:', err)

@@ -12,18 +12,24 @@ const apiToken = argValue('api-token')
 const api = {
   backendUrl,
   apiToken,
-  // Baixa uma URL direto pro disco no processo main (download "Baixar tudo").
-  // Evita trafegar o binário pelo IPC (corrompia o .zip).
-  downloadFile: (
+  // Baixa uma URL do backend direto pro disco no processo main ("Baixar tudo").
+  // Evita trafegar o binário pelo IPC (corrompia o .zip). O progresso (0..1, ou
+  // -1 = sem total) chega em `onProgress`, filtrado pelo id deste download.
+  downloadFile: async (
     url: string,
-    defaultName: string
-  ): Promise<{ canceled?: boolean; filePath?: string; bytes?: number; error?: string }> =>
-    ipcRenderer.invoke('download-file', { url, defaultName }),
-  // Assina o progresso do download (0..1, ou -1 = sem total). Devolve unsubscribe.
-  onDownloadProgress: (cb: (pct: number) => void): (() => void) => {
-    const listener = (_e: unknown, pct: number): void => cb(pct)
+    defaultName: string,
+    onProgress?: (pct: number) => void
+  ): Promise<{ canceled?: boolean; filePath?: string; bytes?: number; error?: string }> => {
+    const id = `${Date.now()}-${Math.random().toString(36).slice(2)}`
+    const listener = (_e: unknown, evId: string, pct: number): void => {
+      if (evId === id) onProgress?.(pct)
+    }
     ipcRenderer.on('download-progress', listener)
-    return () => ipcRenderer.removeListener('download-progress', listener)
+    try {
+      return await ipcRenderer.invoke('download-file', { id, url, defaultName })
+    } finally {
+      ipcRenderer.removeListener('download-progress', listener)
+    }
   }
 }
 

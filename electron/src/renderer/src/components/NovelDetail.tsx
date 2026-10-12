@@ -142,23 +142,13 @@ export function NovelDetail({
     setBulkMsg(null)
     const url = api.allVolumesZipUrl(novelId)
     const name = `${slugifyName(novel?.title ?? 'volumes')}.zip`
-    const electronApi = (
-      globalThis as {
-        api?: {
-          downloadFile?: (
-            u: string,
-            n: string
-          ) => Promise<{ canceled?: boolean; filePath?: string; bytes?: number; error?: string }>
-          onDownloadProgress?: (cb: (pct: number) => void) => () => void
-        }
-      }
-    ).api
+    // window.api só existe no Electron (preload); no dev:web é undefined.
+    const downloadFile = window.api?.downloadFile
 
     setDownloadProgress(-1) // preparando (backend está montando o zip)
-    if (electronApi?.downloadFile) {
-      const unsub = electronApi.onDownloadProgress?.((pct) => setDownloadProgress(pct))
+    if (downloadFile) {
       try {
-        const r = await electronApi.downloadFile(url, name)
+        const r = await downloadFile(url, name, (pct) => setDownloadProgress(pct))
         if (r.error) {
           setBulkMsg({ ok: false, text: r.error })
         } else if (r.canceled) {
@@ -170,7 +160,6 @@ export function NovelDetail({
       } catch (err) {
         setBulkMsg({ ok: false, text: err instanceof Error ? err.message : String(err) })
       } finally {
-        unsub?.()
         setDownloadProgress(null)
       }
       return
