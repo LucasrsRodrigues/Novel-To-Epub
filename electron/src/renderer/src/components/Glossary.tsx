@@ -3,6 +3,7 @@ import { Search, X } from 'lucide-react'
 import { api, type GlossaryEntry, type NovelSummary } from '@renderer/lib/api'
 import { cn } from '@renderer/lib/utils'
 import { Folio } from '@renderer/components/decorative/Folio'
+import { GlossaryCleanup } from '@renderer/components/glossary/GlossaryCleanup'
 
 const KIND_META: Record<string, { label: string; color: string }> = {
   character: { label: 'personagem', color: 'var(--book-4)' },
@@ -13,14 +14,7 @@ const KIND_META: Record<string, { label: string; color: string }> = {
   other: { label: 'outro', color: 'var(--ink-400)' }
 }
 
-const KIND_ORDER = [
-  'character',
-  'place',
-  'ability',
-  'organization',
-  'system_term',
-  'other'
-]
+const KIND_ORDER = ['character', 'place', 'ability', 'organization', 'system_term', 'other']
 
 const CONFIDENCES = ['high', 'medium', 'low'] as const
 
@@ -42,11 +36,7 @@ function KindPill({ kind }: { kind: string }): React.JSX.Element {
 
 function ConfBadge({ conf }: { conf: string }): React.JSX.Element {
   const color =
-    conf === 'high'
-      ? 'var(--book-3)'
-      : conf === 'medium'
-        ? 'var(--ink-400)'
-        : 'var(--ink-stamp)'
+    conf === 'high' ? 'var(--book-3)' : conf === 'medium' ? 'var(--ink-400)' : 'var(--ink-stamp)'
   return (
     <span className="font-sans text-[10px] tracking-[0.18em] uppercase" style={{ color }}>
       {conf}
@@ -111,6 +101,9 @@ export function Glossary({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
+  // Incrementa pra re-buscar o glossário (ex.: depois da limpeza).
+  const [reloadKey, setReloadKey] = useState(0)
+
   useEffect(() => {
     if (novelId == null) return
     setEntries(null)
@@ -118,7 +111,7 @@ export function Glossary({
       .getGlossary(novelId)
       .then(setEntries)
       .catch((err) => setError(err instanceof Error ? err.message : String(err)))
-  }, [novelId])
+  }, [novelId, reloadKey])
 
   const selected = novels?.find((n) => n.id === novelId)
 
@@ -142,9 +135,7 @@ export function Glossary({
       out = out.filter((e) => activeConfs.has(e.confidence))
     }
     // ordena por kind (na ordem visual) + termo alfabetico
-    const order: Record<string, number> = Object.fromEntries(
-      KIND_ORDER.map((k, i) => [k, i])
-    )
+    const order: Record<string, number> = Object.fromEntries(KIND_ORDER.map((k, i) => [k, i]))
     return [...out].sort((a, b) => {
       const ka = order[a.kind] ?? 99
       const kb = order[b.kind] ?? 99
@@ -192,8 +183,8 @@ export function Glossary({
           Glossário
         </h2>
         <p className="font-sans max-w-md text-[15px] leading-relaxed text-[var(--ink-500)]">
-          Personagens, lugares, habilidades — aprendidos pela tradutora a cada
-          capítulo. Travados aqui pra consistência através de toda a obra.
+          Personagens, lugares, habilidades — aprendidos pela tradutora a cada capítulo. Travados
+          aqui pra consistência através de toda a obra.
         </p>
       </header>
 
@@ -201,12 +192,11 @@ export function Glossary({
         <div className="flex items-center justify-between gap-4">
           <div className="space-y-0.5">
             {selected && (
-              <h3 className="font-display text-2xl font-medium tracking-tight">
-                {selected.title}
-              </h3>
+              <h3 className="font-display text-2xl font-medium tracking-tight">{selected.title}</h3>
             )}
             <p className="font-sans text-[12px] tracking-[0.16em] uppercase text-[var(--ink-400)]">
-              {entries?.length ?? '—'} entrada{(entries?.length ?? 0) === 1 ? '' : 's'} · {selected?.chapters ?? 0} caps
+              {entries?.length ?? '—'} entrada{(entries?.length ?? 0) === 1 ? '' : 's'} ·{' '}
+              {selected?.chapters ?? 0} caps
             </p>
           </div>
           <select
@@ -221,6 +211,16 @@ export function Glossary({
             ))}
           </select>
         </div>
+      )}
+
+      {/* So depende da novel (nao de `entries`): durante o reload pos-limpeza
+          entries vira null e o componente desmontaria, perdendo a mensagem. */}
+      {novelId != null && (
+        <GlossaryCleanup
+          key={novelId}
+          novelId={novelId}
+          onApplied={() => setReloadKey((k) => k + 1)}
+        />
       )}
 
       {error && <p className="font-sans text-sm text-[var(--ink-stamp)]">{error}</p>}
@@ -299,9 +299,7 @@ export function Glossary({
 
       {entries && entries.length === 0 && (
         <div className="py-16 text-center">
-          <p className="font-display text-xl italic text-[var(--ink-400)]">
-            Glossário vazio.
-          </p>
+          <p className="font-display text-xl italic text-[var(--ink-400)]">Glossário vazio.</p>
           <p className="font-sans mt-2 text-sm text-[var(--ink-500)]">
             Será preenchido conforme você traduz capítulos.
           </p>

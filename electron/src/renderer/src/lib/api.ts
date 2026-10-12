@@ -305,6 +305,20 @@ export interface GlossaryEntry {
   source: string
 }
 
+export interface GlossaryCleanupReport {
+  novel_id: number
+  total: number
+  duplicates_removed: number
+  common_words_ignored: number
+  junk_ignored: number
+  already_ignored: number
+  remaining_active: number
+  merges: { kept: string; removed: string[] }[]
+  common_words: string[]
+  junk: string[]
+  applied: boolean
+}
+
 async function http<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, {
     headers: {
@@ -356,6 +370,11 @@ export const api = {
   getNovelDetail: (novelId: number) => http<NovelDetail>(`/api/library/${novelId}`),
   getNovelVolumes: (novelId: number) => http<VolumeOut[]>(`/api/library/${novelId}/volumes`),
   getGlossary: (novelId: number) => http<GlossaryEntry[]>(`/api/library/${novelId}/glossary`),
+  // Limpeza do glossário: sem apply só simula (relatório); com apply aplica.
+  cleanGlossary: (novelId: number, apply: boolean) =>
+    http<GlossaryCleanupReport>(`/api/library/${novelId}/glossary/clean?apply=${apply}`, {
+      method: 'POST'
+    }),
   listMirrors: (novelId: number) => http<Mirror[]>(`/api/library/${novelId}/mirrors`),
   addMirror: (novelId: number, url: string) =>
     http<Mirror>(`/api/library/${novelId}/mirrors`, {
