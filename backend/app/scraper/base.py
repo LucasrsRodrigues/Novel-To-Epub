@@ -30,6 +30,10 @@ class BaseAdapter(ABC):
     name: str = ""
     #: dominios que este adapter atende (ex: ["novelbin.com"])
     domains: list[str] = []
+    #: False = adapter fica fora do registry (nao casa URL, nao aparece na UI).
+    #: Usado quando o site sai do ar / troca de dominio: o parsing continua
+    #: versionado aqui, pronto pra religar quando houver um host vivo.
+    enabled: bool = True
 
     def __init__(self, client: HttpClient):
         self.client = client

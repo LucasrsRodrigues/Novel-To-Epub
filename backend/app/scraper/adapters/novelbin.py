@@ -1,6 +1,17 @@
-"""Adapter para NovelBin (novelbin.com / .me / .net / mirrors).
+"""Adapter para NovelBin — DESLIGADO (``enabled = False``) desde 2026-08-21.
 
-Estrutura do site (mapeada em 2026-05):
+Nenhum dos dominios conhecidos serve mais o site (verificado em 2026-08-21):
+
+  - novelbin.com / .me / .org / .io -> sem registro DNS (dominios mortos)
+  - novelbin.net                    -> resolve, mas virou gate de redirect
+    (Erlang/Cowboy + JWT Joken) que joga o visitante numa rede de anuncios
+    de terceiros; nenhum seletor abaixo existe mais na resposta.
+
+O parsing fica versionado aqui de proposito: se aparecer um host vivo, basta
+por o dominio em ``domains`` e voltar ``enabled = True``. Nao adivinhe um
+dominio novo — confirme que ele serve a mesma estrutura antes de religar.
+
+Estrutura do site (mapeada em 2026-05, quando ainda no ar):
   - Pagina da novel: ``/novel-book/<slug>``
       titulo  -> ``h3.title``
       slug    -> ``#rating[data-novel-id]`` (e o slug, nao um id numerico)
@@ -38,7 +49,11 @@ _UNICODE_ESC = re.compile(r"\\u([0-9a-fA-F]{4})")
 
 class NovelBinAdapter(BaseAdapter):
     name = "novelbin"
-    domains = ["novelbin.com", "novelbin.me", "novelbin.net", "novelbin.org", "novelbin.io"]
+    # Vazio de proposito: os dominios antigos estao mortos ou sequestrados por
+    # rede de anuncios (ver docstring). Casar novelbin.net hoje faria o app
+    # baixar lixo de redirect e falhar com um ParseError enganoso.
+    domains: list[str] = []
+    enabled = False
 
     async def fetch_novel(self, url: str) -> NovelMeta:
         soup = BeautifulSoup(await self.client.get_text(url), "lxml")

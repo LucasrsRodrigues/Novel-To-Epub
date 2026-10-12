@@ -25,6 +25,10 @@ class AdapterRegistry:
         self._discovered = False
 
     def register(self, adapter_cls: type[BaseAdapter]) -> None:
+        # Filtrar aqui (e nao em resolve/supports) mantem todo mundo consistente
+        # de graca: CLI `sites`, GET /sites e o resolve enxergam a mesma lista.
+        if not getattr(adapter_cls, "enabled", True):
+            return
         if adapter_cls not in self._adapters:
             self._adapters.append(adapter_cls)
 
