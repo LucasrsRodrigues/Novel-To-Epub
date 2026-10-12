@@ -4,10 +4,25 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from slugify import slugify
 from sqlalchemy import select
 
+from app.config import settings
 from app.db import models as orm
 from app.db.database import get_session, init_db
+from app.logging_conf import get_logger
+
+log = get_logger("volume_store")
+
+
+def novel_epub_dir(output_dir: Path, novel_slug: str) -> Path:
+    """Pasta dos .epub de uma novel: ``<output_dir>/<slug>/``.
+
+    Cada novel tem a sua pasta pra que volumes com o mesmo nome ("Volume 1")
+    de novels diferentes nao gravem no mesmo arquivo — antes um sobrescrevia o
+    outro, e apagar um volume apagava o livro da outra novel.
+    """
+    return output_dir / (slugify(novel_slug) or "novel")
 
 
 class VolumeStore:
@@ -105,7 +120,54 @@ class VolumeStore:
                 Path(path).unlink(missing_ok=True)
             except OSError:
                 pass  # arquivo travado/permissao — registro ja foi embora
+            _remove_if_empty_novel_dir(Path(path).parent)
         return True
+
+    def migrate_flat_paths(self) -> int:
+        """Move .epubs da layout antiga (soltos em ``output_dir``) pra pasta da
+        novel (``output_dir/<slug>/``) e atualiza ``output_path``. Idempotente.
+
+        So mexe em volumes cujo arquivo estava direto em ``settings.output_dir``
+        (saidas da CLI em outras pastas ficam como estao). Se o arquivo sumiu do
+        disco, so o caminho e atualizado — re-capturar o volume volta a casar
+        com o mesmo registro. Devolve quantos registros foram migrados.
+        """
+        root = settings.output_dir.resolve()
+        migrated = 0
+        with get_session() as s:
+            rows = s.execute(
+                select(orm.GeneratedVolume, orm.Novel.slug).join(
+                    orm.Novel, orm.Novel.id == orm.GeneratedVolume.novel_id
+                )
+            ).all()
+            for row, slug in rows:
+                old = Path(row.output_path)
+                if old.parent.resolve() != root:
+                    continue
+                new = novel_epub_dir(settings.output_dir, slug) / old.name
+                if old.exists():
+                    if new.exists():
+                        # Ja existe na pasta nova (ex.: outra novel com o mesmo
+                        # nome gravou antes da correcao) — nao sobrescreve.
+                        log.warning("volume_migrate_conflict", old=str(old), new=str(new))
+                        continue
+                    new.parent.mkdir(parents=True, exist_ok=True)
+                    old.rename(new)
+                row.output_path = str(new)
+                migrated += 1
+            s.commit()
+        if migrated:
+            log.info("volume_paths_migrated", count=migrated)
+        return migrated
+
+
+def _remove_if_empty_novel_dir(folder: Path) -> None:
+    """Apaga a pasta da novel quando o ultimo .epub dela sai (nunca a raiz)."""
+    try:
+        if folder.resolve() != settings.output_dir.resolve() and not any(folder.iterdir()):
+            folder.rmdir()
+    except OSError:
+        pass
 
 
 def _to_dict(row: orm.GeneratedVolume) -> dict:

@@ -22,7 +22,7 @@ from slugify import slugify
 from app.config import settings
 from app.db.cache import ChapterCache
 from app.db.mirror_store import MirrorStore
-from app.db.volume_store import VolumeStore
+from app.db.volume_store import VolumeStore, novel_epub_dir
 from app.epub.builder import build_epub
 from app.logging_conf import get_logger
 from app.models import ChapterContent, ChapterRef, NovelMeta
@@ -342,16 +342,18 @@ async def download_to_epub(
             progress("cover", 1, 1, f"capa falhou: {cover_error[:120]}", False)
 
     # ---- Fase 3: EPUB ----
-    output_dir.mkdir(parents=True, exist_ok=True)
+    epub_dir = novel_epub_dir(output_dir, slug)
+    epub_dir.mkdir(parents=True, exist_ok=True)
     lang_suffix = f"-{translate_to}" if translate_to else ""
     epub_lang = translate_to or "en"
     if volume_title:
         # Quando o usuario nomeou o volume (ex: "Volume 1 - O Sistema Vampirico"),
-        # o arquivo recebe esse nome direto, sem prefixar com o slug da novel.
+        # o arquivo recebe esse nome direto, sem prefixar com o slug da novel —
+        # a pasta da novel (epub_dir) e que separa obras com volumes homonimos.
         filename = f"{slugify(volume_title)}{lang_suffix}.epub"
     else:
         filename = f"{slugify(meta.title)}-{start}-{last}{lang_suffix}.epub"
-    path = output_dir / filename
+    path = epub_dir / filename
     build_epub(
         meta,
         collected,

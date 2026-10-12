@@ -10,6 +10,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app import __version__
 from app.api.jobs import JobManager
 from app.api.routes import router
+from app.db.volume_store import VolumeStore
 from app.logging_conf import configure_logging, get_logger
 
 log = get_logger("server")
@@ -18,6 +19,11 @@ log = get_logger("server")
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     configure_logging()
+    # Antes dos jobs: re-hidratar capturas usa os mesmos output_path.
+    try:
+        VolumeStore().migrate_flat_paths()
+    except Exception as exc:  # migracao nunca impede o app de subir
+        log.warning("volume_migrate_failed", error=str(exc))
     app.state.jobs = JobManager(workers=1)
     await app.state.jobs.start()
     log.info("api_started")
