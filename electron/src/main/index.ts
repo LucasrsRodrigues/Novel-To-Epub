@@ -1,5 +1,5 @@
 import { app, shell, BrowserWindow, dialog, ipcMain } from 'electron'
-import { writeFile } from 'fs/promises'
+import { createWriteStream } from 'fs'
 import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
@@ -72,20 +72,51 @@ function createWindow(backend: BackendInfo): void {
   }
 }
 
-// Salva bytes vindos do renderer via save dialog (download "Baixar tudo"). Devolve
-// o caminho salvo ou {canceled}. Mais confiável que o download do Chromium e dá
-// feedback claro ("salvo em ...") em vez do <a download> silencioso.
+// Baixa uma URL (backend localhost) direto pro disco, no processo main. O main
+// faz o fetch e grava via stream — assim NENHUM binário grande cruza a fronteira
+// do contextBridge/IPC (passar ArrayBuffer por lá corrompia o .zip). Emite
+// progresso por evento 'download-progress' e devolve {filePath} | {canceled} | {error}.
 ipcMain.handle(
-  'save-file',
-  async (_evt, payload: { defaultName: string; data: ArrayBuffer }) => {
-    const win = BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0]
+  'download-file',
+  async (evt, payload: { url: string; defaultName: string }) => {
+    const win = BrowserWindow.fromWebContents(evt.sender) ?? BrowserWindow.getFocusedWindow()
     const opts = { defaultPath: payload.defaultName }
     const { canceled, filePath } = win
       ? await dialog.showSaveDialog(win, opts)
       : await dialog.showSaveDialog(opts)
     if (canceled || !filePath) return { canceled: true }
-    await writeFile(filePath, Buffer.from(payload.data))
-    return { canceled: false, filePath }
+
+    try {
+      const res = await fetch(payload.url)
+      if (!res.ok || !res.body) {
+        let detail = `HTTP ${res.status}`
+        try {
+          const j = (await res.json()) as { detail?: string }
+          if (j?.detail) detail = j.detail
+        } catch {
+          /* corpo não-JSON */
+        }
+        return { error: detail }
+      }
+
+      const total = Number(res.headers.get('content-length')) || 0
+      const out = createWriteStream(filePath)
+      const reader = res.body.getReader()
+      let received = 0
+      for (;;) {
+        const { done, value } = await reader.read()
+        if (done) break
+        out.write(Buffer.from(value))
+        received += value.length
+        evt.sender.send('download-progress', total ? received / total : -1)
+      }
+      await new Promise<void>((resolve, reject) =>
+        out.end((err?: Error | null) => (err ? reject(err) : resolve()))
+      )
+      return { filePath, bytes: received }
+    } catch (err) {
+      return { error: err instanceof Error ? err.message : String(err) }
+    }
   }
 )
 

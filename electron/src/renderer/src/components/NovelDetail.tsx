@@ -135,62 +135,65 @@ export function NovelDetail({
     (v) => !(v.translate_to && v.translation_failed > 0)
   )
 
-  // Baixa o .zip via fetch (não <a download>) pra ter feedback real: estado de
-  // "preparando", barra de progresso na transferência, e erro visível se o
-  // backend recusar (ex.: nenhum volume pronto). Salva via blob URL.
+  // Baixa o .zip de todos os volumes. No Electron, o processo MAIN faz o fetch +
+  // grava no disco (o binário não passa pelo IPC — antes corrompia o .zip); o
+  // progresso chega por evento. No browser (dev:web), cai no fetch + blob URL.
   async function downloadAll(): Promise<void> {
     setBulkMsg(null)
+    const url = api.allVolumesZipUrl(novelId)
+    const name = `${slugifyName(novel?.title ?? 'volumes')}.zip`
+    const electronApi = (
+      globalThis as {
+        api?: {
+          downloadFile?: (
+            u: string,
+            n: string
+          ) => Promise<{ canceled?: boolean; filePath?: string; bytes?: number; error?: string }>
+          onDownloadProgress?: (cb: (pct: number) => void) => () => void
+        }
+      }
+    ).api
+
     setDownloadProgress(-1) // preparando (backend está montando o zip)
+    if (electronApi?.downloadFile) {
+      const unsub = electronApi.onDownloadProgress?.((pct) => setDownloadProgress(pct))
+      try {
+        const r = await electronApi.downloadFile(url, name)
+        if (r.error) {
+          setBulkMsg({ ok: false, text: r.error })
+        } else if (r.canceled) {
+          setBulkMsg({ ok: false, text: 'download cancelado' })
+        } else {
+          const mb = ((r.bytes ?? 0) / 1048576).toFixed(1).replace('.', ',')
+          setBulkMsg({ ok: true, text: `salvo (${mb} MB): ${r.filePath}` })
+        }
+      } catch (err) {
+        setBulkMsg({ ok: false, text: err instanceof Error ? err.message : String(err) })
+      } finally {
+        unsub?.()
+        setDownloadProgress(null)
+      }
+      return
+    }
+
+    // Fallback browser (dev:web): fetch + blob URL.
     try {
-      const res = await fetch(api.allVolumesZipUrl(novelId))
+      const res = await fetch(url)
       if (!res.ok) {
         const detail = await res.json().catch(() => null)
         throw new Error(detail?.detail || `falha no download (${res.status})`)
       }
-      const total = Number(res.headers.get('Content-Length')) || 0
-      let blob: Blob
-      if (res.body && total > 0) {
-        const reader = res.body.getReader()
-        const chunks: Uint8Array[] = []
-        let received = 0
-        for (;;) {
-          const { done, value } = await reader.read()
-          if (done) break
-          chunks.push(value)
-          received += value.length
-          setDownloadProgress(received / total)
-        }
-        blob = new Blob(chunks as BlobPart[], { type: 'application/zip' })
-      } else {
-        blob = await res.blob()
-      }
-      const name = `${slugifyName(novel?.title ?? 'volumes')}.zip`
+      const blob = await res.blob()
+      const objUrl = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = objUrl
+      a.download = name
+      document.body.appendChild(a)
+      a.click()
+      a.remove()
+      URL.revokeObjectURL(objUrl)
       const mb = (blob.size / 1048576).toFixed(1).replace('.', ',')
-      // No Electron, salva via IPC (save dialog + fs) — confiável e dá o caminho.
-      // No browser (dev:web), cai no download por blob URL.
-      type FileSaver = (
-        n: string,
-        d: ArrayBuffer
-      ) => Promise<{ canceled: boolean; filePath?: string }>
-      const saver = (globalThis as { api?: { saveFile?: FileSaver } }).api?.saveFile
-      if (saver) {
-        const r = await saver(name, await blob.arrayBuffer())
-        if (r.canceled) {
-          setBulkMsg({ ok: false, text: 'download cancelado' })
-          return
-        }
-        setBulkMsg({ ok: true, text: `salvo (${mb} MB): ${r.filePath}` })
-      } else {
-        const url = URL.createObjectURL(blob)
-        const a = document.createElement('a')
-        a.href = url
-        a.download = name
-        document.body.appendChild(a)
-        a.click()
-        a.remove()
-        URL.revokeObjectURL(url)
-        setBulkMsg({ ok: true, text: `zip pronto (${mb} MB) — escolha onde salvar` })
-      }
+      setBulkMsg({ ok: true, text: `zip pronto (${mb} MB)` })
     } catch (err) {
       setBulkMsg({ ok: false, text: err instanceof Error ? err.message : String(err) })
     } finally {

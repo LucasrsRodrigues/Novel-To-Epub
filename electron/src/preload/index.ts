@@ -12,12 +12,19 @@ const apiToken = argValue('api-token')
 const api = {
   backendUrl,
   apiToken,
-  // Salva bytes num arquivo via save dialog do main (download "Baixar tudo").
-  saveFile: (
-    defaultName: string,
-    data: ArrayBuffer
-  ): Promise<{ canceled: boolean; filePath?: string }> =>
-    ipcRenderer.invoke('save-file', { defaultName, data })
+  // Baixa uma URL direto pro disco no processo main (download "Baixar tudo").
+  // Evita trafegar o binário pelo IPC (corrompia o .zip).
+  downloadFile: (
+    url: string,
+    defaultName: string
+  ): Promise<{ canceled?: boolean; filePath?: string; bytes?: number; error?: string }> =>
+    ipcRenderer.invoke('download-file', { url, defaultName }),
+  // Assina o progresso do download (0..1, ou -1 = sem total). Devolve unsubscribe.
+  onDownloadProgress: (cb: (pct: number) => void): (() => void) => {
+    const listener = (_e: unknown, pct: number): void => cb(pct)
+    ipcRenderer.on('download-progress', listener)
+    return () => ipcRenderer.removeListener('download-progress', listener)
+  }
 }
 
 // Use `contextBridge` APIs to expose Electron APIs to

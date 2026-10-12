@@ -6,10 +6,11 @@ declare global {
     api: {
       backendUrl: string
       apiToken: string
-      saveFile: (
-        defaultName: string,
-        data: ArrayBuffer
-      ) => Promise<{ canceled: boolean; filePath?: string }>
+      downloadFile: (
+        url: string,
+        defaultName: string
+      ) => Promise<{ canceled?: boolean; filePath?: string; bytes?: number; error?: string }>
+      onDownloadProgress: (cb: (pct: number) => void) => () => void
     }
   }
 }
