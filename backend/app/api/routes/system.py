@@ -50,6 +50,7 @@ def _settings_out(cfg: dict) -> SettingsOut:
         openrouter_model=cfg.get("openrouter_model") or None,
         cerebras_model=cfg.get("cerebras_model") or None,
         claude_model=cfg.get("claude_model") or None,
+        cover_brief_provider=cfg.get("cover_brief_provider") or "gemini",
         default_models=_provider_defaults(),
         cascade_order=order,
         cover_styles_enabled=cover_styles,

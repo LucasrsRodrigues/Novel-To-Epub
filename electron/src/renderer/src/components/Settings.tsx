@@ -93,6 +93,8 @@ export function Settings(): React.JSX.Element {
   ])
   // Estilos de capa habilitados no dropdown (ids). Vazio = capa sempre automática.
   const [coverStyles, setCoverStyles] = useState<string[]>([])
+  // Quem escreve o brief (cena + estilo) da capa por IA. A imagem é sempre Gemini.
+  const [coverBriefProvider, setCoverBriefProvider] = useState<'gemini' | 'claude'>('gemini')
 
   // Gemini via Vertex AI (consome crédito do Google Cloud)
   const [useVertex, setUseVertex] = useState(false)
@@ -125,6 +127,7 @@ export function Settings(): React.JSX.Element {
         setCerebrasKeySet(cfg.cerebras_api_key_set)
         setClaudeKeySet(cfg.claude_api_key_set)
         setClaudeModel(cfg.claude_model ?? '')
+        setCoverBriefProvider(cfg.cover_brief_provider ?? 'gemini')
         setGroqModel(cfg.groq_model ?? '')
         setOpenrouterModel(cfg.openrouter_model ?? '')
         setCerebrasModel(cfg.cerebras_model ?? '')
@@ -169,6 +172,7 @@ export function Settings(): React.JSX.Element {
     body.claude_model = claudeModel.trim() || null
     body.cascade_order = cascadeOrder
     body.cover_styles_enabled = coverStyles
+    body.cover_brief_provider = coverBriefProvider
     body.gemini_use_vertex = useVertex
     body.gemini_vertex_project = vertexProject.trim() || null
     body.gemini_vertex_location = vertexLocation.trim() || 'us-central1'
@@ -580,6 +584,25 @@ export function Settings(): React.JSX.Element {
                 ? 'Um estilo marcado — o botão de capa usa ele direto, sem perguntar.'
                 : `${coverStyles.length} estilos — o botão de capa abre um menu pra escolher.`}
           </p>
+
+          <div className="space-y-1.5 pt-4">
+            <Label htmlFor="cover-brief">Quem escreve o brief da capa</Label>
+            <select
+              id="cover-brief"
+              value={coverBriefProvider}
+              onChange={(e) => setCoverBriefProvider(e.target.value as 'gemini' | 'claude')}
+              className={selectClasses}
+            >
+              <option value="gemini">Gemini (padrão)</option>
+              <option value="claude" disabled={!claudeKeySet && !claudeKey}>
+                Claude{!claudeKeySet && !claudeKey ? ' — adicione a key do Claude no cascade' : ''}
+              </option>
+            </select>
+            <p className="font-sans mt-1 text-[11px] text-[var(--ink-500)]">
+              O brief é a descrição da cena e do estilo que vira o prompt da imagem. A imagem em si
+              é sempre gerada pelo Gemini. Se o Claude falhar ou recusar, o brief cai pro Gemini.
+            </p>
+          </div>
         </Card>
 
         <div className="flex items-center gap-4 pt-2">

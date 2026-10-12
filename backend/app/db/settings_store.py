@@ -25,6 +25,7 @@ _FIELDS = (
     "cerebras_model",
     "claude_api_key",
     "claude_model",
+    "cover_brief_provider",
     "cascade_order",
     "cover_styles_enabled",
     # Gemini via Vertex AI

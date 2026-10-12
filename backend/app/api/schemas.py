@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from typing import Literal
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -352,6 +353,7 @@ class SettingsOut(BaseModel):
     openrouter_model: str | None
     cerebras_model: str | None
     claude_model: str | None
+    cover_brief_provider: str  # "gemini" | "claude"
     # Defaults pra UI mostrar como placeholder
     default_models: dict[str, str]
     cascade_order: list[str]  # ex: ["groq","openrouter","cerebras","gemini"]
@@ -383,6 +385,7 @@ class SettingsUpdate(BaseModel):
     cerebras_model: str | None = None
     claude_api_key: str | None = None
     claude_model: str | None = None
+    cover_brief_provider: Literal["gemini", "claude"] | None = None
     cascade_order: list[str] | None = None
     cover_styles_enabled: list[str] | None = None
     # --- Gemini via Vertex AI ---

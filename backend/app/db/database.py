@@ -75,6 +75,8 @@ _PENDING_COLUMNS: list[tuple[str, str, str]] = [
     # Claude (API da Anthropic)
     ("app_settings", "claude_api_key", "TEXT"),
     ("app_settings", "claude_model", "VARCHAR(120)"),
+    # Quem escreve o brief (cena + estilo) da capa por IA: gemini | claude
+    ("app_settings", "cover_brief_provider", "VARCHAR(20) DEFAULT 'gemini'"),
     # Gemini via Vertex AI (consome credito do Google Cloud)
     ("app_settings", "gemini_use_vertex", "BOOLEAN DEFAULT 0"),
     ("app_settings", "gemini_vertex_project", "VARCHAR(120)"),

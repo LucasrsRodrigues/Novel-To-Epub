@@ -187,6 +187,8 @@ class AppSettings(Base):
     # Claude (API da Anthropic)
     claude_api_key: Mapped[str | None] = mapped_column(Text, nullable=True)
     claude_model: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    # Quem escreve o brief da capa por IA: "gemini" | "claude" (imagem e sempre Gemini)
+    cover_brief_provider: Mapped[str] = mapped_column(String(20), default="gemini")
     # CSV de provider names em ordem de preferencia (free primeiro)
     cascade_order: Mapped[str] = mapped_column(
         String(200), default="groq,openrouter,cerebras,gemini"

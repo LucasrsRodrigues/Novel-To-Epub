@@ -143,6 +143,7 @@ export interface AppSettingsView {
   openrouter_model: string | null
   cerebras_model: string | null
   claude_model: string | null
+  cover_brief_provider: 'gemini' | 'claude'
   default_models: Record<string, string>
   cascade_order: string[]
   cover_styles_enabled: string[]
@@ -172,6 +173,7 @@ export interface SettingsUpdate {
   cerebras_model?: string | null
   claude_api_key?: string | null
   claude_model?: string | null
+  cover_brief_provider?: 'gemini' | 'claude'
   cascade_order?: string[]
   cover_styles_enabled?: string[]
   // Gemini via Vertex AI

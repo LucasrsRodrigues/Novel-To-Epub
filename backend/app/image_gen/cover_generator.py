@@ -515,6 +515,18 @@ async def _build_visual_brief(
     user_prompt = _build_brief_user_prompt(
         novel_meta, volume_title, excerpts, glossary, style_hint
     )
+
+    # Brief pelo Claude (opcional, Configuracoes → "Brief da capa"). So o texto:
+    # a imagem segue no Gemini. Qualquer falha cai pro Gemini abaixo.
+    claude_brief = await _try_claude_brief(user_prompt, novel_id)
+    if claude_brief is not None:
+        log.info(
+            "cover_brief_built", provider="claude",
+            scene=claude_brief.scene[:140], style=claude_brief.style[:80],
+            excerpts=len(excerpts),
+        )
+        return claude_brief
+
     config = types.GenerateContentConfig(
         system_instruction=_BRIEF_SYSTEM,
         response_mime_type="application/json",
@@ -543,6 +555,32 @@ async def _build_visual_brief(
         excerpts=len(excerpts),
     )
     return brief
+
+
+async def _try_claude_brief(user_prompt: str, novel_id: int) -> _Brief | None:
+    """Brief pelo Claude se ``cover_brief_provider == "claude"``; None = usar Gemini."""
+    cfg = SettingsStore().get()
+    if (cfg.get("cover_brief_provider") or "gemini") != "claude":
+        return None
+    key = os.environ.get("ANTHROPIC_API_KEY") or cfg.get("claude_api_key")
+    if not key:
+        log.warning("claude_brief_skipped", reason="sem chave do Claude — usando Gemini")
+        return None
+    from app.image_gen.claude_brief import ClaudeBriefError, build_brief_with_claude
+
+    try:
+        data, model, in_tok, out_tok = await build_brief_with_claude(
+            api_key=key, model=cfg.get("claude_model"),
+            system=_BRIEF_SYSTEM, user_prompt=user_prompt,
+        )
+    except ClaudeBriefError as exc:
+        log.warning("claude_brief_failed", error=str(exc)[:200], fallback="gemini")
+        return None
+    UsageStore().record(
+        op="cover_brief", model=f"claude/{model}",
+        input_tokens=in_tok, output_tokens=out_tok, novel_id=novel_id,
+    )
+    return _Brief(**data)
 
 
 async def _generate_image_bytes(
