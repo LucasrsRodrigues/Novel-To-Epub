@@ -16,8 +16,21 @@ class UnsupportedSiteError(ScraperError):
 
 
 class FetchError(ScraperError):
-    """Falha ao baixar uma pagina (rede/HTTP)."""
+    """Falha ao baixar uma pagina (rede/HTTP).
+
+    ``status`` traz o codigo HTTP quando a falha veio de uma resposta (None em
+    erro de transporte/DNS). Adapters que falam com API JSON usam isso pra
+    distinguir 401/403/404 sem ter que ler a mensagem.
+    """
+
+    def __init__(self, message: str, *, status: int | None = None):
+        super().__init__(message)
+        self.status = status
 
 
 class ParseError(ScraperError):
     """Falha ao extrair dados do HTML (estrutura mudou?)."""
+
+
+class BlockedError(FetchError):
+    """O site respondeu com um desafio anti-bot (ex.: Cloudflare 'Just a moment')."""

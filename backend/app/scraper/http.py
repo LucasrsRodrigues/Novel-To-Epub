@@ -9,18 +9,19 @@ from __future__ import annotations
 
 import asyncio
 import random
+from urllib.parse import urlsplit
 
 import httpx
 from tenacity import (
     retry,
-    retry_if_exception_type,
+    retry_if_exception,
     stop_after_attempt,
     wait_exponential,
 )
 
 from app.config import settings
 from app.logging_conf import get_logger
-from app.scraper.errors import FetchError
+from app.scraper.errors import BlockedError, FetchError
 
 log = get_logger("http")
 
@@ -34,8 +35,33 @@ DEFAULT_HEADERS = {
     "Connection": "keep-alive",
 }
 
-# Erros transitorios que valem a pena re-tentar.
-_RETRYABLE = (httpx.TransportError, httpx.HTTPStatusError)
+# Erros transitorios que valem a pena re-tentar. Um 403/404 nao melhora com
+# backoff — re-tentar so queima tempo (e reforca o bloqueio), entao de HTTP so
+# 429 e 5xx entram no retry.
+_RETRYABLE_STATUS = {408, 425, 429}
+
+
+def _is_retryable(exc: BaseException) -> bool:
+    if isinstance(exc, httpx.TransportError):
+        return True
+    if isinstance(exc, httpx.HTTPStatusError):
+        code = exc.response.status_code
+        return code in _RETRYABLE_STATUS or code >= 500
+    return False
+
+
+def _challenge_reason(resp: httpx.Response) -> str | None:
+    """Detecta um desafio anti-bot (Cloudflare & cia) na resposta."""
+    headers = resp.headers
+    if headers.get("cf-mitigated") == "challenge":
+        return "Cloudflare"
+    if resp.status_code in (403, 503):
+        server = headers.get("server", "").lower()
+        if "cloudflare" in server:
+            return "Cloudflare"
+        if "ddos-guard" in server:
+            return "DDoS-Guard"
+    return None
 
 
 class HttpClient:
@@ -64,7 +90,7 @@ class HttpClient:
 
     async def _request(self, url: str) -> httpx.Response:
         @retry(
-            retry=retry_if_exception_type(_RETRYABLE),
+            retry=retry_if_exception(_is_retryable),
             stop=stop_after_attempt(self.max_retries + 1),
             wait=wait_exponential(multiplier=1, min=1, max=10),
             reraise=True,
@@ -76,6 +102,20 @@ class HttpClient:
 
         try:
             return await _do()
+        except httpx.HTTPStatusError as exc:
+            guard = _challenge_reason(exc.response)
+            if guard:
+                log.warning("fetch_blocked", url=url, guard=guard)
+                raise BlockedError(
+                    f"{urlsplit(url).netloc} esta protegido por {guard} e devolveu um "
+                    f"desafio anti-bot (HTTP {exc.response.status_code}). O site nao "
+                    f"pode ser capturado por HTTP direto — use outro mirror/fonte "
+                    f"para esta obra."
+                ) from exc
+            log.warning("fetch_failed", url=url, error=str(exc))
+            raise FetchError(
+                f"Falha ao baixar {url}: {exc}", status=exc.response.status_code
+            ) from exc
         except httpx.HTTPError as exc:
             log.warning("fetch_failed", url=url, error=str(exc))
             raise FetchError(f"Falha ao baixar {url}: {exc}") from exc
