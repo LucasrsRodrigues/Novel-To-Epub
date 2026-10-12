@@ -100,7 +100,10 @@ async def download_to_epub(
                 novel_id=novel_id, volume_title=volume_title,
             )
 
-        total = len(meta.chapters)
+        # Maior index, nao a contagem: adapters com lacunas na numeracao (ex.:
+        # CSNovels) tem index > len(chapters), e o fim do intervalo cortaria os
+        # ultimos caps. Pra TOC contigua (1..N) da no mesmo.
+        total = max((r.index for r in meta.chapters), default=0)
         if total == 0:
             raise RuntimeError(f"nenhum capitulo encontrado em {url}")
         last = total if end is None else min(end, total)

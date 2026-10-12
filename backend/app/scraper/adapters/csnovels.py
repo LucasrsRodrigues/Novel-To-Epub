@@ -15,7 +15,9 @@ as que o front do proprio site chama. Estrutura mapeada em 2026-08-21:
 
 Nao ha endpoint de TOC: os capitulos sao numerados de ``start_chapter`` a
 ``end_chapter``, entao a lista e gerada por range (descontando as lacunas de
-``missing_index``).
+``missing_index``). O ``index`` de cada cap e derivado do NUMERO (ver
+``_build_chapter_list``), nao da posicao — o cache de capitulos/traducao e
+chaveado por index.
 
 Dois detalhes que moldam o codigo:
 
@@ -158,9 +160,20 @@ class CSNovelsAdapter(BaseAdapter):
 
 
 def _build_chapter_list(book: dict, base: str, slug: str) -> list[ChapterRef]:
-    """Gera a TOC por range — o site nao tem endpoint de indice."""
-    start = _as_int(book.get("start_chapter")) or 1
-    end = _as_int(book.get("end_chapter")) or _as_int(book.get("chaptercount")) or 0
+    """Gera a TOC por range — o site nao tem endpoint de indice.
+
+    ``index = n - start + 1`` (e nao a posicao na lista): lacunas de
+    ``missing_index`` viram buracos na numeracao. Com indice posicional, o site
+    preencher uma lacuna deslocava todos os caps seguintes, e o cache (chaveado
+    por (novel, index), nunca re-baixa) passava a servir o cap errado em cada
+    posicao do EPUB. Assim o index de um cap so muda se ``start_chapter`` mudar.
+    """
+    start = _as_int(book.get("start_chapter"))
+    if start is None:  # ausente/invalido; 0 e valido (prologo)
+        start = 1
+    end = _as_int(book.get("end_chapter"))
+    if end is None:
+        end = start + (_as_int(book.get("chaptercount")) or 0) - 1
     if end < start:
         return []
 
@@ -171,7 +184,7 @@ def _build_chapter_list(book: dict, base: str, slug: str) -> list[ChapterRef]:
             continue
         refs.append(
             ChapterRef(
-                index=len(refs) + 1,
+                index=n - start + 1,
                 # "Chapter N" e o formato que o parse_chapter_number entende —
                 # e o que casa esse cap com o mesmo cap em outro mirror.
                 title=f"Chapter {n}",
