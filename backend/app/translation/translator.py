@@ -4,7 +4,7 @@ from __future__ import annotations
 
 
 from app.logging_conf import get_logger
-from app.translation.glossary import GlossaryEntry, GlossaryStore
+from app.translation.glossary import GlossaryEntry, GlossaryStore, select_for_chapter
 from app.translation.provider import TranslationProvider
 from app.translation.style import (
     StyleProfileStore,
@@ -72,6 +72,12 @@ class Translator:
             return title or chapter_title, html, True
 
         glossary = self.gloss.list_for_novel(novel_id)
+        # So o que importa pra ESTE capitulo vai pro prompt (o glossario inteiro
+        # nao cabe — ver select_for_chapter).
+        relevant = select_for_chapter(glossary, f"{chapter_title}\n{chapter_html}")
+        log.debug(
+            "glossary_selected", chapter=chapter_index, total=len(glossary), sent=len(relevant)
+        )
 
         # Style profile (declarativo: tom, vocativo, etc) — só existe a partir
         # do 2º cap (1º cap "define" o estilo). E anchor: amostra do cap N-1.
@@ -86,7 +92,7 @@ class Translator:
             text_html=chapter_html,
             chapter_title=chapter_title,
             target_language=self.target,
-            glossary=glossary,
+            glossary=relevant,
             novel_title=novel_title,
             novel_slug=novel_slug,
             chapter_index=chapter_index,

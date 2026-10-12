@@ -90,27 +90,29 @@ class _TranslationOutput(BaseModel):
 
 
 def _format_glossary(entries: list[GlossaryEntry], *, max_chars: int = 8000) -> str:
-    """Formata glossário pra prompt, com truncamento estratégico se passar do orçamento.
+    """Formata glossário pra prompt, com truncamento se passar do orçamento.
 
     `max_chars` evita estourar TPM de provider free (Groq free = 12k tokens
     por minuto, ~48k chars; nosso budget de 8k chars deixa folga pro
-    capítulo + style anchor + schema). Quando precisar cortar:
-      - Notes são truncadas pra 60 chars (info menos crítica que term/gender).
-      - Prioridade de retenção: character > place > ability > organization > system_term > other.
-      - Entries que sobram são descartadas com aviso.
+    capítulo + style anchor + schema).
+
+    A ORDEM de `entries` é respeitada — quem chama já manda priorizado
+    (`glossary.select_for_chapter`: termos do capítulo primeiro, elenco
+    principal depois). Quando precisar cortar:
+      - Notes são truncadas pra 60 chars, e depois omitidas (info menos
+        crítica que term/gender).
+      - Só então entries do fim (menor prioridade) são descartadas, com aviso.
     """
     if not entries:
         return "(vazio — adicione TODOS os nomes próprios e termos do mundo encontrados a new_glossary_entries)"
 
-    # Ordena por prioridade pra priorizar character/place no truncate
-    _PRIORITY = {"character": 0, "place": 1, "ability": 2, "organization": 3, "system_term": 4, "other": 5}
-    ordered = sorted(entries, key=lambda e: (_PRIORITY.get(e.kind, 99), e.term.lower()))
+    ordered = list(entries)
 
     def _fmt(e: GlossaryEntry, notes_max: int) -> str:
         bits = [e.kind]
         if e.gender not in ("n/a", "unknown"):
             bits.append(e.gender)
-        if e.notes:
+        if e.notes and notes_max > 0:
             note = e.notes[:notes_max] + ("…" if len(e.notes) > notes_max else "")
             bits.append(note)
         return f'- {e.term} → "{e.canonical_pt}" ({", ".join(bits)})'
@@ -127,7 +129,14 @@ def _format_glossary(entries: list[GlossaryEntry], *, max_chars: int = 8000) -> 
     if len(text) <= max_chars:
         return text
 
-    # 3ª passada: corta entries do tail (menor prioridade) até caber
+    # 3ª passada: sem notes — termo, tradução e gênero são o que garantem a
+    # consistência; melhor todos os termos do capítulo sem nota do que cortar.
+    lines = [_fmt(e, notes_max=0) for e in ordered]
+    text = "\n".join(lines)
+    if len(text) <= max_chars:
+        return text
+
+    # 4ª passada: corta entries do tail (menor prioridade) até caber
     kept: list[str] = []
     running = 0
     for ln in lines:
@@ -138,7 +147,7 @@ def _format_glossary(entries: list[GlossaryEntry], *, max_chars: int = 8000) -> 
     dropped = len(ordered) - len(kept)
     text = "\n".join(kept)
     if dropped > 0:
-        text += f"\n(… {dropped} entries omitidas por limite de tokens — priorizei characters/places.)"
+        text += f"\n(… {dropped} entries omitidas por limite de tokens — priorizei os termos deste capítulo.)"
     return text
 
 
