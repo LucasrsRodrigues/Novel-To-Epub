@@ -7,6 +7,37 @@ o versionamento segue [SemVer](https://semver.org/lang/pt-BR/).
 
 ## [Unreleased]
 
+## [1.0.20] — 2026-10-11
+
+### Added
+
+- **Claude (API da Anthropic) como provider de tradução** no cascade — saída
+  estruturada, cache do prompt, fallback de recusa no servidor. Chave e modelo
+  em Configurações (default `claude-opus-5-5`); entra no fim do cascade.
+- **Site WuxiaWorldEU** (`wuxiaworld.eu`), com volumes detectados pelo título.
+- **Limpar glossário** (botão na tela do Glossário, com prévia): junta
+  duplicatas e tira do prompt palavras comuns cadastradas como nome.
+- Suíte de testes do backend (`pytest`) rodando no CI.
+
+### Changed
+
+- O prompt de tradução leva só os termos do glossário que aparecem no capítulo
+  (+ elenco principal) — antes, em glossários grandes, só 1–4% dos termos
+  relevantes chegavam ao modelo.
+- Cada novel tem sua pasta de EPUBs (`epubs/<novel>/`); migração automática.
+- API local exige token por sessão; Electron em sandbox, links externos só
+  http(s), uma instância por vez; backend reinicia sozinho se cair e grava log
+  em `userData/logs/backend.log`.
+
+### Fixed
+
+- Volumes homônimos de novels diferentes se sobrescreviam.
+- Job cancelado na fila e retomado rodava duas vezes; fechar o app com captura
+  rodando travava o backend.
+- Chamadas ao Gemini sem timeout podiam travar a fila.
+- "Baixar tudo" podia derrubar o app ou deixar `.zip` pela metade.
+- Lista de downloads não se atualizava depois de reconexão.
+
 ## [1.0.13] — 2026-05-29
 
 Release grande de **capas por IA**: foco em coleção coesa por série, galeria
