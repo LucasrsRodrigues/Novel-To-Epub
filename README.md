@@ -98,11 +98,14 @@ que nada é re-baixado.
 
 ## Sites suportados
 
-| Site         | Domínios                                                      | Status       |
+| Site         | Domínios                                                       | Status       |
 |--------------|----------------------------------------------------------------|--------------|
-| NovelBin     | `novelbin.com`, `novelbin.me`, `novelbin.net`, `.org`, `.io`   | ✅ Pronto    |
 | NovelMania   | `novelmania.com.br` (já em PT-BR, dispensa tradução)           | ✅ Pronto    |
 | NovelFull    | `novelfull.net`                                                | ✅ Pronto (paginação concorrente) |
+| Royal Road   | `royalroad.com`                                                | ✅ Pronto    |
+| CSNovels     | `csnovels.com` (só obras gratuitas)                            | ✅ Pronto    |
+| WuxiaWorldEU | `wuxiaworld.eu` (não é o wuxiaworld.com)                       | ✅ Pronto (volumes detectados) |
+| NovelBin     | `novelbin.*`                                                   | ⛔ Desligado — domínios fora do ar desde 2026-08 |
 
 Não vê o seu site? Veja [Como adicionar um novo site](#como-adicionar-um-novo-site-adapter)
 ou abra um [adapter request](.github/ISSUE_TEMPLATE/adapter_request.md).

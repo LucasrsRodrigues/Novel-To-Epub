@@ -63,9 +63,12 @@ through an auto-built glossary across hundreds of chapters.
 
 | Site         | Domains                                                       | Status       |
 |--------------|---------------------------------------------------------------|--------------|
-| NovelBin     | `novelbin.com`, `novelbin.me`, `novelbin.net`, `.org`, `.io`  | ✅ Ready    |
 | NovelMania   | `novelmania.com.br` (PT-BR native, skips translation)         | ✅ Ready    |
 | NovelFull    | `novelfull.net`                                               | ✅ Ready    |
+| Royal Road   | `royalroad.com`                                               | ✅ Ready    |
+| CSNovels     | `csnovels.com` (free works only)                              | ✅ Ready    |
+| WuxiaWorldEU | `wuxiaworld.eu` (not wuxiaworld.com)                          | ✅ Ready (volumes detected) |
+| NovelBin     | `novelbin.*`                                                  | ⛔ Disabled — domains down since 2026-08 |
 
 Don't see your site? Open an
 [adapter request](.github/ISSUE_TEMPLATE/adapter_request.md) — or write the
