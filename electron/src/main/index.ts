@@ -3,7 +3,13 @@ import { join } from 'path'
 import { fileURLToPath } from 'url'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
-import { startBackend, stopBackend, type BackendConfig, type BackendInfo } from './backend'
+import {
+  killBackendNow,
+  startBackend,
+  stopBackend,
+  type BackendConfig,
+  type BackendInfo
+} from './backend'
 import { downloadToFile } from './download'
 
 // Modo headless (sem janela) — usado para validar o spawn do backend nos testes.
@@ -18,6 +24,21 @@ if (!is.dev) {
   app.setPath('userData', join(app.getPath('appData'), 'Novel to EPUB'))
 }
 
+// Uma instancia so: duas abririam dois backends gravando no MESMO SQLite e nas
+// mesmas capture_intents do userData. A segunda abertura so traz a janela da
+// primeira pra frente.
+const gotLock = app.requestSingleInstanceLock()
+if (!gotLock) {
+  app.quit()
+} else {
+  app.on('second-instance', () => {
+    const win = BrowserWindow.getAllWindows()[0]
+    if (!win) return
+    if (win.isMinimized()) win.restore()
+    win.focus()
+  })
+}
+
 function backendConfig(): BackendConfig {
   const isWin = process.platform === 'win32'
   const port = process.env.NOVEL_BACKEND_PORT ? Number(process.env.NOVEL_BACKEND_PORT) : undefined
@@ -26,7 +47,7 @@ function backendConfig(): BackendConfig {
     // out/main -> ../../../backend  (raiz do projeto/backend)
     const backendDir = join(__dirname, '../../../backend')
     const pythonPath = join(backendDir, '.venv', isWin ? 'Scripts/python.exe' : 'bin/python')
-    return { backendDir, pythonPath, port } // em dev usa backend/data
+    return { backendDir, pythonPath, port } // em dev usa backend/data; log so no console
   }
 
   // Produção: binário empacotado (PyInstaller) em resources/.
@@ -37,7 +58,8 @@ function backendConfig(): BackendConfig {
     pythonPath: '',
     binaryPath: join(backendDir, isWin ? 'novel-backend.exe' : 'novel-backend'),
     port,
-    dataDir: app.getPath('userData')
+    dataDir: app.getPath('userData'),
+    logFile: join(app.getPath('userData'), 'logs', 'backend.log')
   }
 }
 
@@ -143,13 +165,34 @@ ipcMain.handle(
   }
 )
 
+// O backend caiu e nao voltou: sem ele o app nao faz nada. Oferece reabrir.
+function backendFatal(err: Error): void {
+  console.error('[main] backend parou de vez:', err)
+  if (HEADLESS) return app.quit()
+  const logHint = is.dev ? '' : `\n\nLog: ${join(app.getPath('userData'), 'logs', 'backend.log')}`
+  const choice = dialog.showMessageBoxSync({
+    type: 'error',
+    title: 'O backend parou',
+    message: 'O backend do app parou de responder e não conseguiu reiniciar.',
+    detail: `${err.message}${logHint}`,
+    buttons: ['Reabrir o app', 'Fechar'],
+    defaultId: 0
+  })
+  if (choice === 0) app.relaunch()
+  app.quit()
+}
+
 app.whenReady().then(async () => {
+  if (!gotLock) return
   electronApp.setAppUserModelId('com.novel-to-epub')
   app.on('browser-window-created', (_, window) => optimizer.watchWindowShortcuts(window))
 
   let backend: BackendInfo
   try {
-    backend = await startBackend(backendConfig())
+    backend = await startBackend(backendConfig(), {
+      onRestarted: () => console.warn('[main] backend reiniciado apos queda'),
+      onFatal: backendFatal
+    })
     backendOrigin = new URL(backend.url).origin
     console.log('[main] backend pronto em', backend.url)
   } catch (err) {
@@ -171,12 +214,20 @@ app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit()
 })
 
-// Garante que o backend morre junto com o app.
-app.on('before-quit', stopBackend)
-process.on('exit', stopBackend)
-for (const sig of ['SIGTERM', 'SIGINT'] as const) {
-  process.on(sig, () => {
-    stopBackend()
+// Garante que o backend morre junto com o app — e que o app SO sai depois dele:
+// segura o quit, espera o SIGTERM terminar (jobs viram 'interrupted', SQLite
+// fecha limpo; SIGKILL apos 5s) e ai sai de verdade.
+let backendStopped = false
+app.on('before-quit', (event) => {
+  if (backendStopped) return
+  event.preventDefault()
+  void stopBackend().finally(() => {
+    backendStopped = true
     app.quit()
   })
+})
+// Ultimo recurso se o processo sair sem passar pelo before-quit.
+process.on('exit', killBackendNow)
+for (const sig of ['SIGTERM', 'SIGINT'] as const) {
+  process.on(sig, () => app.quit())
 }

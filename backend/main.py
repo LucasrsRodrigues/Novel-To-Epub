@@ -117,7 +117,9 @@ def serve(
     """Sobe a API FastAPI (REST + WebSocket)."""
     import uvicorn
     import app.api.server  # noqa: F401  # garante que o bundler (PyInstaller) inclua o modulo
+    from app.parent_watch import start_parent_watch
 
+    start_parent_watch()  # no-op sem NOVEL_PARENT_PID (serve manual / CLI)
     uvicorn.run("app.api.server:app", host=host, port=port, reload=reload)
 
 
