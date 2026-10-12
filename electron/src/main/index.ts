@@ -1,5 +1,6 @@
 import { app, shell, BrowserWindow, dialog, ipcMain } from 'electron'
 import { join } from 'path'
+import { fileURLToPath } from 'url'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
 import { startBackend, stopBackend, type BackendConfig, type BackendInfo } from './backend'
@@ -40,6 +41,30 @@ function backendConfig(): BackendConfig {
   }
 }
 
+function isWebUrl(url: string): boolean {
+  try {
+    const { protocol } = new URL(url)
+    return protocol === 'https:' || protocol === 'http:'
+  } catch {
+    return false
+  }
+}
+
+const RENDERER_INDEX = join(__dirname, '../renderer/index.html')
+
+// URL da própria UI: o dev server do Vite (dev) ou o index.html empacotado —
+// só ele, não qualquer file:// (um link pra arquivo local também é navegação).
+function isAppUrl(url: string): boolean {
+  const devUrl = is.dev ? process.env['ELECTRON_RENDERER_URL'] : undefined
+  try {
+    if (devUrl) return new URL(url).origin === new URL(devUrl).origin
+    const u = new URL(url)
+    return u.protocol === 'file:' && fileURLToPath(u) === RENDERER_INDEX
+  } catch {
+    return false
+  }
+}
+
 function createWindow(backend: BackendInfo): void {
   const mainWindow = new BrowserWindow({
     width: 1000,
@@ -64,15 +89,28 @@ function createWindow(backend: BackendInfo): void {
 
   mainWindow.on('ready-to-show', () => mainWindow.show())
 
+  // Links <a target="_blank"> (site da novel, wiki, repositório) abrem no
+  // navegador do sistema — mas só http(s). Essas URLs vêm em parte de dados
+  // raspados (source_url/wiki_url); um file:// ou esquema customizado
+  // (ex.: app de terceiro registrado no SO) seria executado pelo openExternal.
   mainWindow.webContents.setWindowOpenHandler((details) => {
-    shell.openExternal(details.url)
+    if (isWebUrl(details.url)) void shell.openExternal(details.url)
     return { action: 'deny' }
+  })
+
+  // A janela nunca sai do app: um <a href> sem target (ou um redirect) trocaria a
+  // UI por uma página externa — que herdaria o preload e o window.api. Links
+  // http(s) vão pro navegador do sistema; o resto é ignorado.
+  mainWindow.webContents.on('will-navigate', (event, url) => {
+    if (isAppUrl(url)) return
+    event.preventDefault()
+    if (isWebUrl(url)) void shell.openExternal(url)
   })
 
   if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
     mainWindow.loadURL(process.env['ELECTRON_RENDERER_URL'])
   } else {
-    mainWindow.loadFile(join(__dirname, '../renderer/index.html'))
+    mainWindow.loadFile(RENDERER_INDEX)
   }
 }
 
