@@ -1,6 +1,6 @@
 {
   "name": "novel-to-epub",
-  "version": "1.0.17",
+  "version": "1.0.19",
   "description": "Scraper de web novels que gera EPUBs com tradução por IA, capa gerada e envio pro Kindle.",
   "main": "./out/main/index.js",
   "author": "LucasrsRodrigues",
@@ -21,9 +21,10 @@
     "dev:web": "vite",
     "build": "npm run typecheck && electron-vite build",
     "postinstall": "electron-builder install-app-deps",
-    "build:unpack": "npm run build && electron-builder --dir",
+    "build:backend": "cd ../backend && .venv/bin/pyinstaller --clean --noconfirm novel-backend.spec",
+    "build:unpack": "npm run build:backend && npm run build && electron-builder --dir",
     "build:win": "npm run build && electron-builder --win",
-    "build:mac": "electron-vite build && electron-builder --mac",
+    "build:mac": "npm run build:backend && electron-vite build && electron-builder --mac",
     "build:linux": "electron-vite build && electron-builder --linux"
   },
   "dependencies": {
