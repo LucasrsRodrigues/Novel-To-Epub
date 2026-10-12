@@ -47,7 +47,9 @@ def _is_ad(el) -> bool:
     return any(kw in attrs for kw in AD_KEYWORDS)
 
 
-def _is_spam(text: str) -> bool:
+# Publica: adapters de site que nao trabalham com HTML (ex.: CSNovels, que
+# devolve texto puro via JSON) reusam so este filtro, sem o resto do parse.
+def is_spam(text: str) -> bool:
     return any(pat.search(text) for pat in SPAM_PATTERNS)
 
 
@@ -64,7 +66,7 @@ def default_clean(raw_html: str) -> str:
     paragraphs: list[str] = []
     for p in soup.find_all("p"):
         text = p.get_text(" ", strip=True)
-        if text and not _is_spam(text):
+        if text and not is_spam(text):
             paragraphs.append(text)
 
     # Fallback: alguns sites nao usam <p>, soltam texto direto no container.
@@ -73,7 +75,7 @@ def default_clean(raw_html: str) -> str:
         paragraphs = [
             line
             for line in (ln.strip() for ln in raw_text.split("\n"))
-            if line and not _is_spam(line)
+            if line and not is_spam(line)
         ]
 
     return "\n".join(f"<p>{escape(t)}</p>" for t in paragraphs)
