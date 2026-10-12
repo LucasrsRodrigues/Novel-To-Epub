@@ -136,9 +136,13 @@ class VolumeStore:
         migrated = 0
         with get_session() as s:
             rows = s.execute(
-                select(orm.GeneratedVolume, orm.Novel.slug).join(
-                    orm.Novel, orm.Novel.id == orm.GeneratedVolume.novel_id
-                )
+                select(orm.GeneratedVolume, orm.Novel.slug)
+                .join(orm.Novel, orm.Novel.id == orm.GeneratedVolume.novel_id)
+                # Mais recente primeiro: se o bug ja fez dois volumes apontarem pro
+                # mesmo arquivo, quem gravou por ultimo e o dono do conteudo e leva
+                # o .epub; o outro fica com o path na pasta dele, sem arquivo
+                # (precisa "Recompilar" — o conteudo dele ja tinha sido sobrescrito).
+                .order_by(orm.GeneratedVolume.updated_at.desc(), orm.GeneratedVolume.id.desc())
             ).all()
             for row, slug in rows:
                 old = Path(row.output_path)
