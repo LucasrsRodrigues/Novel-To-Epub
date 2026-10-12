@@ -3,7 +3,7 @@ import { writeFile } from 'fs/promises'
 import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
-import { startBackend, stopBackend, type BackendConfig } from './backend'
+import { startBackend, stopBackend, type BackendConfig, type BackendInfo } from './backend'
 
 // Modo headless (sem janela) — usado para validar o spawn do backend nos testes.
 const HEADLESS = !!process.env.NOVEL_HEADLESS
@@ -40,7 +40,7 @@ function backendConfig(): BackendConfig {
   }
 }
 
-function createWindow(backendUrl: string): void {
+function createWindow(backend: BackendInfo): void {
   const mainWindow = new BrowserWindow({
     width: 1000,
     height: 720,
@@ -53,8 +53,8 @@ function createWindow(backendUrl: string): void {
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       sandbox: false,
-      // injeta a URL do backend no renderer (lida pelo preload)
-      additionalArguments: [`--backend-url=${backendUrl}`]
+      // injeta URL + token do backend no renderer (lidos pelo preload)
+      additionalArguments: [`--backend-url=${backend.url}`, `--api-token=${backend.token}`]
     }
   })
 
@@ -93,10 +93,10 @@ app.whenReady().then(async () => {
   electronApp.setAppUserModelId('com.novel-to-epub')
   app.on('browser-window-created', (_, window) => optimizer.watchWindowShortcuts(window))
 
-  let backendUrl: string
+  let backend: BackendInfo
   try {
-    backendUrl = await startBackend(backendConfig())
-    console.log('[main] backend pronto em', backendUrl)
+    backend = await startBackend(backendConfig())
+    console.log('[main] backend pronto em', backend.url)
   } catch (err) {
     console.error('[main] backend falhou:', err)
     if (!HEADLESS) dialog.showErrorBox('Erro ao iniciar o backend', String(err))
@@ -105,9 +105,9 @@ app.whenReady().then(async () => {
   }
 
   if (!HEADLESS) {
-    createWindow(backendUrl)
+    createWindow(backend)
     app.on('activate', () => {
-      if (BrowserWindow.getAllWindows().length === 0) createWindow(backendUrl)
+      if (BrowserWindow.getAllWindows().length === 0) createWindow(backend)
     })
   }
 })

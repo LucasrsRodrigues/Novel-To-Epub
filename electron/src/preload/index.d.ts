@@ -5,6 +5,7 @@ declare global {
     electron: ElectronAPI
     api: {
       backendUrl: string
+      apiToken: string
       saveFile: (
         defaultName: string,
         data: ArrayBuffer

@@ -2,6 +2,7 @@ import { spawn, type ChildProcess } from 'child_process'
 import { createServer, type AddressInfo } from 'net'
 import { request } from 'http'
 import { existsSync } from 'fs'
+import { randomBytes } from 'crypto'
 
 let proc: ChildProcess | null = null
 
@@ -56,8 +57,16 @@ async function waitForHealth(url: string, timeoutMs = 30000): Promise<void> {
   throw new Error('backend nao respondeu ao /api/health a tempo')
 }
 
-/** Sobe o backend Python e resolve com a URL base depois do health check. */
-export async function startBackend(cfg: BackendConfig): Promise<string> {
+export interface BackendInfo {
+  url: string
+  /** Token exigido pelo backend em toda request (header X-Api-Token ou ?token=).
+   *  Novo a cada abertura do app — impede que paginas abertas no navegador
+   *  chamem a API local (ver backend/app/api/auth.py). */
+  token: string
+}
+
+/** Sobe o backend Python e resolve com URL + token depois do health check. */
+export async function startBackend(cfg: BackendConfig): Promise<BackendInfo> {
   const host = cfg.host ?? '127.0.0.1'
   const port = cfg.port ?? (await freePort())
   const url = `http://${host}:${port}`
@@ -74,6 +83,8 @@ export async function startBackend(cfg: BackendConfig): Promise<string> {
 
   const env: NodeJS.ProcessEnv = { ...process.env }
   if (cfg.dataDir) env.NOVEL_DATA_DIR = cfg.dataDir
+  const token = randomBytes(32).toString('hex')
+  env.NOVEL_API_TOKEN = token
 
   proc = spawn(cmd, args, { cwd: cfg.backendDir, stdio: 'inherit', env })
   proc.on('exit', (code, signal) => {
@@ -83,7 +94,7 @@ export async function startBackend(cfg: BackendConfig): Promise<string> {
   proc.on('error', (err) => console.error('[backend] falha ao iniciar:', err))
 
   await waitForHealth(url)
-  return url
+  return { url, token }
 }
 
 /** Encerra o backend (idempotente). */

@@ -2,12 +2,16 @@ import { contextBridge, ipcRenderer } from 'electron'
 import { electronAPI } from '@electron-toolkit/preload'
 
 // URL do backend injetada pelo main via webPreferences.additionalArguments
-const backendUrl =
-  process.argv.find((arg) => arg.startsWith('--backend-url='))?.slice('--backend-url='.length) ?? ''
+const argValue = (name: string): string =>
+  process.argv.find((arg) => arg.startsWith(`--${name}=`))?.slice(name.length + 3) ?? ''
+const backendUrl = argValue('backend-url')
+// Token da API local (novo a cada abertura do app) — ver backend/app/api/auth.py
+const apiToken = argValue('api-token')
 
 // Custom APIs for renderer
 const api = {
   backendUrl,
+  apiToken,
   // Salva bytes num arquivo via save dialog do main (download "Baixar tudo").
   saveFile: (
     defaultName: string,

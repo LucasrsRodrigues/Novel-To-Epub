@@ -41,6 +41,11 @@ class Settings(BaseSettings):
     # --- Paths ---
     data_dir: Path = DEFAULT_DATA_DIR
 
+    # --- API ---
+    # Token exigido em toda request (ver app.api.auth). O Electron gera um novo a
+    # cada abertura e passa via NOVEL_API_TOKEN. None = API aberta (CLI/dev).
+    api_token: str | None = None
+
     # --- Logging ---
     log_level: str = "INFO"
     log_json: bool = False  # True = saida JSON (util quando virar servidor/servico)

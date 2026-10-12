@@ -10,6 +10,19 @@ function resolveBase(): string {
 
 const API_BASE = resolveBase()
 
+// Token da API local (o main gera um a cada abertura). Vai no header X-Api-Token
+// nas chamadas via http() e como ?token= nas URLs usadas direto em <img>,
+// <a download>, fetch cru e WebSocket (que não mandam header). Vazio fora do
+// Electron: o backend só exige token quando NOVEL_API_TOKEN está definido.
+const API_TOKEN =
+  (typeof window !== 'undefined' ? window.api?.apiToken : undefined) ||
+  ((import.meta.env.VITE_API_TOKEN as string | undefined) ?? '')
+
+function withToken(url: string): string {
+  if (!API_TOKEN) return url
+  return `${url}${url.includes('?') ? '&' : '?'}token=${encodeURIComponent(API_TOKEN)}`
+}
+
 export type JobStatusKind = 'queued' | 'running' | 'done' | 'error' | 'cancelled' | 'interrupted' // captura pendente re-hidratada após restart do backend
 
 export interface TranslationFailure {
@@ -293,7 +306,10 @@ export interface GlossaryEntry {
 
 async function http<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, {
-    headers: { 'Content-Type': 'application/json' },
+    headers: {
+      'Content-Type': 'application/json',
+      ...(API_TOKEN ? { 'X-Api-Token': API_TOKEN } : {})
+    },
     ...init
   })
   if (!res.ok) {
@@ -346,8 +362,9 @@ export const api = {
       body: JSON.stringify({ url })
     }),
   deleteMirror: (mirrorId: number) => http<void>(`/api/mirrors/${mirrorId}`, { method: 'DELETE' }),
-  volumeFileUrl: (id: number) => `${API_BASE}/api/volumes/${id}/file`,
-  allVolumesZipUrl: (novelId: number) => `${API_BASE}/api/library/${novelId}/volumes.zip`,
+  volumeFileUrl: (id: number) => withToken(`${API_BASE}/api/volumes/${id}/file`),
+  allVolumesZipUrl: (novelId: number) =>
+    withToken(`${API_BASE}/api/library/${novelId}/volumes.zip`),
   sendAllToKindle: (novelId: number) =>
     http<{
       to: string
@@ -365,7 +382,7 @@ export const api = {
     const q = new URLSearchParams({ kind })
     if (opts.native) q.set('native', 'true')
     if (opts.download) q.set('download', 'true')
-    return `${API_BASE}/api/covers/${coverId}/file?${q.toString()}`
+    return withToken(`${API_BASE}/api/covers/${coverId}/file?${q.toString()}`)
   },
   generateNativeWallpaper: (coverId: number, fmt: WallpaperFmt) =>
     http<CoverOut>(`/api/covers/${coverId}/native?fmt=${fmt}`, { method: 'POST' }),
@@ -431,9 +448,9 @@ export const api = {
   getSettings: () => http<AppSettingsView>('/api/settings'),
   updateSettings: (body: SettingsUpdate) =>
     http<AppSettingsView>('/api/settings', { method: 'PUT', body: JSON.stringify(body) }),
-  fileUrl: (id: string) => `${API_BASE}/api/downloads/${id}/file`
+  fileUrl: (id: string) => withToken(`${API_BASE}/api/downloads/${id}/file`)
 }
 
 export function wsUrl(): string {
-  return API_BASE.replace(/^http/, 'ws') + '/ws/progress'
+  return withToken(API_BASE.replace(/^http/, 'ws') + '/ws/progress')
 }

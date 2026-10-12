@@ -8,8 +8,10 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 
 from app import __version__
+from app.api.auth import ApiTokenMiddleware
 from app.api.jobs import JobManager
 from app.api.routes import router
+from app.config import settings
 from app.db.volume_store import VolumeStore
 from app.logging_conf import configure_logging, get_logger
 
@@ -36,6 +38,11 @@ async def lifespan(app: FastAPI):
 
 def create_app() -> FastAPI:
     app = FastAPI(title="Novel Scraper to EPUB", version=__version__, lifespan=lifespan)
+
+    # Token antes do CORS: o ultimo middleware adicionado fica por fora, entao o
+    # CORS responde o preflight (que nao leva o header do token) e poe os headers
+    # CORS ate no 401 — o renderer consegue ler o motivo.
+    app.add_middleware(ApiTokenMiddleware, token=settings.api_token)
 
     # Electron/dev: libera CORS (app local)
     app.add_middleware(
