@@ -1,0 +1,3 @@
+# Dependencias so de desenvolvimento/CI (nao entram no binario PyInstaller).
+-r requirements.txt
+pytest>=8.3
