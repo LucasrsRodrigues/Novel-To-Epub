@@ -164,11 +164,9 @@ class JobManager:
     async def stop(self) -> None:
         for t in self._workers:
             t.cancel()
-        for t in self._workers:
-            try:
-                await t
-            except asyncio.CancelledError:
-                pass
+        # return_exceptions engole so o CancelledError dos workers; se o proprio
+        # stop() for cancelado (timeout do uvicorn), o cancelamento propaga.
+        await asyncio.gather(*self._workers, return_exceptions=True)
         self._workers = []
         log.info("jobmanager_stopped")
 
@@ -367,12 +365,21 @@ class JobManager:
             try:
                 await task
             except asyncio.CancelledError:
-                # Cancelamento veio do cancel() — _run propagou. Marca status
-                # apenas se o job ja nao esta em estado terminal.
+                # Duas origens possiveis: o usuario (cancel() cancelou so a task
+                # do job) ou o desligamento (stop() cancelou ESTE worker, o que
+                # tambem cancela a task aguardada). No 2o caso o job foi
+                # interrompido, nao cancelado — fica 'interrupted' (com "Continuar
+                # captura" no proximo start) e o worker precisa SAIR: engolir o
+                # cancelamento aqui fazia o loop voltar pro queue.get() e o stop()
+                # esperava pra sempre.
+                shutting_down = asyncio.current_task().cancelling() > 0
                 if job.status not in ("done", "error", "cancelled"):
-                    job.status = "cancelled"
+                    job.status = "interrupted" if shutting_down else "cancelled"
                     self._touch(job)
-                    self._publish("cancelled", job)
+                    self._publish(job.status, job)
+                if shutting_down:
+                    log.info("job_interrupted_shutdown", id=job.id)
+                    raise
                 log.info("job_cancelled_running", id=job.id)
             except Exception as exc:  # rede de seguranca
                 job.status = "error"
