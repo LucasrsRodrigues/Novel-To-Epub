@@ -138,9 +138,11 @@ export interface AppSettingsView {
   groq_api_key_set: boolean
   openrouter_api_key_set: boolean
   cerebras_api_key_set: boolean
+  claude_api_key_set: boolean
   groq_model: string | null
   openrouter_model: string | null
   cerebras_model: string | null
+  claude_model: string | null
   default_models: Record<string, string>
   cascade_order: string[]
   cover_styles_enabled: string[]
@@ -168,6 +170,8 @@ export interface SettingsUpdate {
   groq_model?: string | null
   openrouter_model?: string | null
   cerebras_model?: string | null
+  claude_api_key?: string | null
+  claude_model?: string | null
   cascade_order?: string[]
   cover_styles_enabled?: string[]
   // Gemini via Vertex AI

@@ -12,6 +12,7 @@ from app.api.schemas import (
     SiteInfo,
 )
 from app.db.settings_store import SettingsStore
+from app.translation.factory import with_known_providers
 from app.scraper.registry import registry
 
 router = APIRouter()
@@ -19,7 +20,7 @@ router = APIRouter()
 
 def _settings_out(cfg: dict) -> SettingsOut:
     raw_order = cfg.get("cascade_order") or "groq,openrouter,cerebras,gemini"
-    order = (
+    order = with_known_providers(
         [p.strip() for p in raw_order.split(",") if p.strip()]
         if isinstance(raw_order, str)
         else list(raw_order)
@@ -44,9 +45,11 @@ def _settings_out(cfg: dict) -> SettingsOut:
         groq_api_key_set=bool(cfg.get("groq_api_key")),
         openrouter_api_key_set=bool(cfg.get("openrouter_api_key")),
         cerebras_api_key_set=bool(cfg.get("cerebras_api_key")),
+        claude_api_key_set=bool(cfg.get("claude_api_key")),
         groq_model=cfg.get("groq_model") or None,
         openrouter_model=cfg.get("openrouter_model") or None,
         cerebras_model=cfg.get("cerebras_model") or None,
+        claude_model=cfg.get("claude_model") or None,
         default_models=_provider_defaults(),
         cascade_order=order,
         cover_styles_enabled=cover_styles,

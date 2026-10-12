@@ -184,6 +184,9 @@ class AppSettings(Base):
     groq_model: Mapped[str | None] = mapped_column(String(120), nullable=True)
     openrouter_model: Mapped[str | None] = mapped_column(String(120), nullable=True)
     cerebras_model: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    # Claude (API da Anthropic)
+    claude_api_key: Mapped[str | None] = mapped_column(Text, nullable=True)
+    claude_model: Mapped[str | None] = mapped_column(String(120), nullable=True)
     # CSV de provider names em ordem de preferencia (free primeiro)
     cascade_order: Mapped[str] = mapped_column(
         String(200), default="groq,openrouter,cerebras,gemini"

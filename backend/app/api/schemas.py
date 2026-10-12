@@ -346,10 +346,12 @@ class SettingsOut(BaseModel):
     groq_api_key_set: bool
     openrouter_api_key_set: bool
     cerebras_api_key_set: bool
+    claude_api_key_set: bool
     # Models por provider (None = default em factory.DEFAULT_MODELS)
     groq_model: str | None
     openrouter_model: str | None
     cerebras_model: str | None
+    claude_model: str | None
     # Defaults pra UI mostrar como placeholder
     default_models: dict[str, str]
     cascade_order: list[str]  # ex: ["groq","openrouter","cerebras","gemini"]
@@ -379,6 +381,8 @@ class SettingsUpdate(BaseModel):
     groq_model: str | None = None
     openrouter_model: str | None = None
     cerebras_model: str | None = None
+    claude_api_key: str | None = None
+    claude_model: str | None = None
     cascade_order: list[str] | None = None
     cover_styles_enabled: list[str] | None = None
     # --- Gemini via Vertex AI ---

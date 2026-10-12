@@ -23,6 +23,8 @@ _FIELDS = (
     "groq_model",
     "openrouter_model",
     "cerebras_model",
+    "claude_api_key",
+    "claude_model",
     "cascade_order",
     "cover_styles_enabled",
     # Gemini via Vertex AI

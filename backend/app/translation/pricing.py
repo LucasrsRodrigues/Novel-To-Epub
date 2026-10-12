@@ -28,6 +28,15 @@ _TEXT_PRICES: dict[str, tuple[float, float]] = {
     "qwen/qwen-2.5-72b-instruct:free": (0.0, 0.0),
     "meta-llama/llama-3.3-70b-instruct:free": (0.0, 0.0),
     "google/gemini-2.0-flash-exp:free": (0.0, 0.0),
+    # Claude (Anthropic, API 1st-party; USD por 1M tokens). Cache: leitura ~0,1x e
+    # escrita ~1,25x do input — o dashboard conta tudo como input normal, entao
+    # o custo exibido fica um pouco ACIMA do real quando o cache acerta.
+    "claude-opus-5-5": (4.00, 20.00),
+    "claude-sonnet-5-5": (2.00, 10.00),
+    "claude-haiku-5-5": (0.10, 0.50),  # prompts ate 100k tokens
+    "claude-opus-4-8": (5.00, 25.00),  # possivel destino do fallback de recusa
+    "claude-opus-5": (5.00, 25.00),
+    "claude-sonnet-5": (2.00, 10.00),
     # Cerebras (free generoso)
     "llama-3.3-70b": (0.0, 0.0),
     "llama3.1-70b": (0.0, 0.0),

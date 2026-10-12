@@ -29,3 +29,4 @@ aiosmtplib>=3.0          # envio SMTP async (Kindle)
 
 # --- Traducao (Etapa 5) ---
 google-genai>=1.0        # SDK unificado do Gemini (substitui google-generativeai)
+anthropic>=1.13          # Claude (provider de traducao opcional)

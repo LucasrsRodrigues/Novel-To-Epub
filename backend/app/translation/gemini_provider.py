@@ -151,26 +151,10 @@ def _format_glossary(entries: list[GlossaryEntry], *, max_chars: int = 8000) -> 
     return text
 
 
-def _build_system_prompt(
-    novel_title: str,
-    target_language: str,
-    glossary: list[GlossaryEntry],
-    *,
-    style_profile_block: str = "",
-    style_anchor_block: str = "",
-) -> str:
-    """Monta o system prompt do tradutor.
-
-    `style_profile_block` e `style_anchor_block` são opcionais — quando o
-    volume tem um perfil/ancora salvos, são injetados pra forçar consistência
-    de voz quando trocamos de provider/modelo no cascade.
-    """
-    lang = _LANG_NAMES.get(target_language, target_language)
-    return f"""Você é um tradutor profissional de web novels do inglês para {lang}.
-
-NOVEL: {novel_title}
-
-REGRA FUNDAMENTAL — O QUE **NÃO** TRADUZIR (preservar EM INGLÊS, sem aportuguesar):
+# Partes FIXAS do prompt (nao dependem da novel nem do capitulo). Ficam em
+# constantes pra que o provider do Claude possa manda-las num bloco proprio,
+# cacheavel (ver claude_provider) — o texto montado pra Gemini/OpenAI e o mesmo.
+_RULES = """REGRA FUNDAMENTAL — O QUE **NÃO** TRADUZIR (preservar EM INGLÊS, sem aportuguesar):
 - Personagens: "Quinn", "Layla", "Voldemort", "Mei Lin"
 - Habilidades/skills/poderes nomeados: "Fireball", "Sword Mastery", "Vampire's Bite", "Path of Glory"
 - Cidades/lugares/regiões: "Hellpike", "Astoria", "the Mire", "Aldridge City"
@@ -190,21 +174,53 @@ O QUE **TRADUZIR** normalmente:
 ESTILO:
 - Mantenha o tom narrativo e ritmo do original; prosa fluente, não literal palavra-por-palavra.
 - Diálogos: use travessão (—) no início de cada fala (norma brasileira).
-- Use gênero gramatical EXATAMENTE como indicado no glossário (male/female). Se Quinn é male, todas as referências em PT são masculinas: "ele", "cansado", "o jovem".
+- Use gênero gramatical EXATAMENTE como indicado no glossário (male/female). Se Quinn é male, todas as referências em PT são masculinas: "ele", "cansado", "o jovem"."""
 
-GLOSSÁRIO (use estes termos exatos para consistência através dos capítulos):
-{_format_glossary(glossary)}
-
-NOVOS TERMOS:
-Adicione ao campo `new_glossary_entries` TODO nome próprio (qualquer coisa com inicial maiúscula que se refira a uma pessoa, lugar, habilidade, organização ou item nomeado) que NÃO está no glossário acima:
+_NEW_TERMS_AND_HTML = """NOVOS TERMOS:
+Adicione ao campo `new_glossary_entries` TODO nome próprio (qualquer coisa com inicial maiúscula que se refira a uma pessoa, lugar, habilidade, organização ou item nomeado) que NÃO está no glossário {where}:
 - Para personagens: infira `gender` do contexto (pronomes "he/she/they", descrições); confidence="low" se ambíguo.
 - Para coisas (place/ability/organization/system_term): `gender="n/a"`.
 - `canonical_pt` = `term` (mantém em inglês, lembra da regra fundamental).
 - `notes`: 1 frase curta sobre o papel/contexto.
 
 ESTRUTURA HTML:
-A entrada vem como sequência de tags <p>...</p>. Sua saída `translated_html` deve ter EXATAMENTE o mesmo número de <p>, na mesma ordem. Não invente nem funda parágrafos.
-{style_profile_block}{style_anchor_block}"""
+A entrada vem como sequência de tags <p>...</p>. Sua saída `translated_html` deve ter EXATAMENTE o mesmo número de <p>, na mesma ordem. Não invente nem funda parágrafos."""
+
+
+def _intro(target_language: str) -> str:
+    lang = _LANG_NAMES.get(target_language, target_language)
+    return f"Você é um tradutor profissional de web novels do inglês para {lang}."
+
+
+def _glossary_section(glossary: list[GlossaryEntry]) -> str:
+    return (
+        "GLOSSÁRIO (use estes termos exatos para consistência através dos capítulos):\n"
+        + _format_glossary(glossary)
+    )
+
+
+def _build_system_prompt(
+    novel_title: str,
+    target_language: str,
+    glossary: list[GlossaryEntry],
+    *,
+    style_profile_block: str = "",
+    style_anchor_block: str = "",
+) -> str:
+    """Monta o system prompt do tradutor.
+
+    `style_profile_block` e `style_anchor_block` são opcionais — quando o
+    volume tem um perfil/ancora salvos, são injetados pra forçar consistência
+    de voz quando trocamos de provider/modelo no cascade.
+    """
+    return (
+        f"{_intro(target_language)}\n\n"
+        f"NOVEL: {novel_title}\n\n"
+        f"{_RULES}\n\n"
+        f"{_glossary_section(glossary)}\n\n"
+        f"{_NEW_TERMS_AND_HTML.format(where='acima')}\n"
+        f"{style_profile_block}{style_anchor_block}"
+    )
 
 
 class GeminiProvider(TranslationProvider):

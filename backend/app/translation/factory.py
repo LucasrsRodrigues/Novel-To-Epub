@@ -8,6 +8,8 @@ from app.db.settings_store import SettingsStore
 from app.gemini_client import vertex_cfg
 from app.logging_conf import get_logger
 from app.translation.cascade import CascadeTranslator
+from app.translation.claude_provider import DEFAULT_MODEL as CLAUDE_DEFAULT_MODEL
+from app.translation.claude_provider import ClaudeProvider
 from app.translation.gemini_provider import GeminiProvider
 from app.translation.openai_compatible_provider import (
     PROVIDER_BASE_URLS,
@@ -36,7 +38,17 @@ DEFAULT_MODELS: dict[str, str] = {
     # oficial recomendado por eles (https://inference-docs.cerebras.ai/support/deprecation)
     "cerebras": "gpt-oss-120b",
     "gemini": "gemini-2.5-flash",
+    # Claude (API da Anthropic, pago por token — ver translation/pricing.py)
+    "claude": CLAUDE_DEFAULT_MODEL,
 }
+
+# Todos os providers conhecidos. Um provider novo que ainda nao esta no
+# cascade_order salvo entra no FIM — so vira fallback ate o usuario reordenar.
+KNOWN_PROVIDERS = ["groq", "openrouter", "cerebras", "gemini", "claude"]
+
+
+def with_known_providers(order: list[str]) -> list[str]:
+    return order + [p for p in KNOWN_PROVIDERS if p not in order]
 
 
 def _read_keys(cfg: dict) -> dict[str, str | None]:
@@ -52,6 +64,7 @@ def _read_keys(cfg: dict) -> dict[str, str | None]:
             os.environ.get("OPENROUTER_API_KEY") or cfg.get("openrouter_api_key")
         ),
         "cerebras": os.environ.get("CEREBRAS_API_KEY") or cfg.get("cerebras_api_key"),
+        "claude": os.environ.get("ANTHROPIC_API_KEY") or cfg.get("claude_api_key"),
     }
 
 
@@ -74,6 +87,8 @@ def _build_provider(name: str, key: str, model: str | None) -> TranslationProvid
         return GeminiProvider(
             api_key=key, model=model, escalation_model=_gemini_escalation(model)
         )
+    if name == "claude":
+        return ClaudeProvider(api_key=key, model=model)
     if name in PROVIDER_BASE_URLS:
         return OpenAICompatibleProvider(provider_name=name, api_key=key, model=model)
     raise TranslationConfigError(f"provider desconhecido: {name}")
@@ -104,6 +119,7 @@ def build_translator(
     else:
         # Default: free primeiro, paid último
         order = ["groq", "openrouter", "cerebras", "gemini"]
+    order = with_known_providers(order)
 
     providers: list[TranslationProvider] = []
     skipped: list[str] = []
@@ -141,7 +157,7 @@ def build_translator(
     if not providers:
         raise TranslationConfigError(
             "nenhum provider configurado — adicione pelo menos 1 API key em /api/settings "
-            f"(Groq/OpenRouter/Cerebras/Gemini). Skipped: {skipped}"
+            f"(Groq/OpenRouter/Cerebras/Gemini/Claude). Skipped: {skipped}"
         )
 
     log.info(

@@ -75,10 +75,14 @@ export function Settings(): React.JSX.Element {
   const [cerebrasKey, setCerebrasKey] = useState('')
   const [cerebrasKeySet, setCerebrasKeySet] = useState(false)
   const [cerebrasModel, setCerebrasModel] = useState('')
+  const [claudeKey, setClaudeKey] = useState('')
+  const [claudeKeySet, setClaudeKeySet] = useState(false)
+  const [claudeModel, setClaudeModel] = useState('')
   const [defaultModels, setDefaultModels] = useState<Record<string, string>>({
     groq: 'llama-3.3-70b-versatile',
     openrouter: 'qwen/qwen-2.5-72b-instruct:free',
     cerebras: 'gpt-oss-120b',
+    claude: 'claude-opus-5-5',
     gemini: 'gemini-2.5-flash'
   })
   const [cascadeOrder, setCascadeOrder] = useState<string[]>([
@@ -119,6 +123,8 @@ export function Settings(): React.JSX.Element {
         setGroqKeySet(cfg.groq_api_key_set)
         setOpenrouterKeySet(cfg.openrouter_api_key_set)
         setCerebrasKeySet(cfg.cerebras_api_key_set)
+        setClaudeKeySet(cfg.claude_api_key_set)
+        setClaudeModel(cfg.claude_model ?? '')
         setGroqModel(cfg.groq_model ?? '')
         setOpenrouterModel(cfg.openrouter_model ?? '')
         setCerebrasModel(cfg.cerebras_model ?? '')
@@ -155,10 +161,12 @@ export function Settings(): React.JSX.Element {
     if (groqKey) body.groq_api_key = groqKey
     if (openrouterKey) body.openrouter_api_key = openrouterKey
     if (cerebrasKey) body.cerebras_api_key = cerebrasKey
+    if (claudeKey) body.claude_api_key = claudeKey
     // Models: string vazia = limpa override (volta pro default); valor = sobrescreve
     body.groq_model = groqModel.trim() || null
     body.openrouter_model = openrouterModel.trim() || null
     body.cerebras_model = cerebrasModel.trim() || null
+    body.claude_model = claudeModel.trim() || null
     body.cascade_order = cascadeOrder
     body.cover_styles_enabled = coverStyles
     body.gemini_use_vertex = useVertex
@@ -178,6 +186,8 @@ export function Settings(): React.JSX.Element {
       setOpenrouterKey('')
       setCerebrasKeySet(cfg.cerebras_api_key_set)
       setCerebrasKey('')
+      setClaudeKeySet(cfg.claude_api_key_set)
+      setClaudeKey('')
       if (cfg.cascade_order && cfg.cascade_order.length > 0) {
         setCascadeOrder(cfg.cascade_order)
       }
@@ -446,6 +456,18 @@ export function Settings(): React.JSX.Element {
             onModelChange={setCerebrasModel}
             defaultModel={defaultModels.cerebras}
           />
+          <ProviderKeyRow
+            label="Claude (Anthropic)"
+            provider="claude"
+            url="https://platform.claude.com/settings/keys"
+            note="Pago por token. Default: claude-opus-5-5 ($4/$20 por 1M tokens). Mais barato: claude-sonnet-5-5 ($2/$10) ou claude-haiku-5-5 ($0,10/$0,50)."
+            keySet={claudeKeySet}
+            value={claudeKey}
+            onChange={setClaudeKey}
+            model={claudeModel}
+            onModelChange={setClaudeModel}
+            defaultModel={defaultModels.claude}
+          />
 
           <div className="pt-4">
             <Label>Ordem do cascade</Label>
@@ -458,7 +480,9 @@ export function Settings(): React.JSX.Element {
                   (p === 'groq' && (groqKey || groqKeySet)) ||
                   (p === 'openrouter' && (openrouterKey || openrouterKeySet)) ||
                   (p === 'cerebras' && (cerebrasKey || cerebrasKeySet)) ||
-                  (p === 'gemini' && (geminiKey || geminiKeySet))
+                  (p === 'claude' && (claudeKey || claudeKeySet)) ||
+                  // Gemini via Vertex usa service account, não API key
+                  (p === 'gemini' && (geminiKey || geminiKeySet || useVertex))
                 return (
                   <li
                     key={p}
