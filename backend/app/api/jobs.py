@@ -277,6 +277,12 @@ class JobManager:
         job.translation_failures = []
         job.download_failed = 0
         job.download_failures = []
+        # Resultados da execucao anterior: on_complete/_run reescrevem no fim.
+        # Sem zerar, a UI mostraria o erro de capa / link do .epub antigos
+        # enquanto o job roda de novo.
+        job.cover_error = None
+        job.volume_id = None
+        job.output_path = None
         self._touch(job)
         self._queue.put_nowait(job.id)
         self._publish("queued", job)
@@ -348,8 +354,11 @@ class JobManager:
         while True:
             job_id = await self._queue.get()
             job = self._jobs.get(job_id)
-            # Job pode ter sido cancelado enquanto estava na fila — pula sem rodar.
-            if job is None or job.status == "cancelled":
+            # So roda o que ainda esta 'queued'. Cancelar um job na fila nao tira
+            # o id da fila; se ele for retomado, o id entra de novo — a copia
+            # velha nao pode rodar o job uma 2a vez (nem um job ja 'running' em
+            # outro worker / ja 'done').
+            if job is None or job.status != "queued":
                 self._queue.task_done()
                 continue
             # Encapsula _run numa task pra permitir cancel granular via cancel().
