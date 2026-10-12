@@ -184,7 +184,9 @@ function backendFatal(err: Error): void {
 
 app.whenReady().then(async () => {
   if (!gotLock) return
-  electronApp.setAppUserModelId('com.novel-to-epub')
+  // Igual ao appId do electron-builder.yml — senão o Windows não agrupa
+  // notificações/barra de tarefas com o app instalado.
+  electronApp.setAppUserModelId('com.lucasrs.novel-to-epub')
   app.on('browser-window-created', (_, window) => optimizer.watchWindowShortcuts(window))
 
   let backend: BackendInfo

@@ -21,14 +21,13 @@
     "dev:web": "vite",
     "build": "npm run typecheck && electron-vite build",
     "postinstall": "electron-builder install-app-deps",
-    "build:backend": "cd ../backend && .venv/bin/pyinstaller --clean --noconfirm novel-backend.spec",
-    "build:unpack": "npm run build:backend && npm run build && electron-builder --dir",
-    "build:win": "npm run build && electron-builder --win",
-    "build:mac": "npm run build:backend && electron-vite build && electron-builder --mac",
-    "build:linux": "electron-vite build && electron-builder --linux"
+    "build:backend": "node scripts/backend.mjs build",
+    "build:unpack": "npm run build:backend && npm run build && node scripts/backend.mjs check && electron-builder --dir",
+    "build:win": "npm run build:backend && npm run build && node scripts/backend.mjs check win && electron-builder --win",
+    "build:mac": "npm run build:backend && npm run build && node scripts/backend.mjs check mac && electron-builder --mac",
+    "build:linux": "npm run build:backend && npm run build && node scripts/backend.mjs check linux && electron-builder --linux"
   },
   "dependencies": {
-    "@electron-toolkit/preload": "^3.0.2",
     "@electron-toolkit/utils": "^4.0.0",
     "@fontsource-variable/fraunces": "^5.2.9",
     "@fontsource-variable/geist": "^5.2.9",
